@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 
 class PlaceSchema(BaseModel):
@@ -54,3 +54,25 @@ class SeatsResponse(BaseModel):
 
     event_id: str
     available_seats: list[str]
+
+
+class CreateTicketRequest(BaseModel):
+    """Схема запроса на создание билета."""
+
+    event_id: str
+    first_name: str
+    last_name: str
+    email: EmailStr
+    seat: str
+
+
+class CreateTicketResponse(BaseModel):
+    """Схема ответа после создания билета."""
+
+    ticket_id: str
+
+
+class CancelTicketResponse(BaseModel):
+    """Схема ответа после отмены билета."""
+
+    success: bool
