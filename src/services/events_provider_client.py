@@ -1,4 +1,12 @@
+import logging
+
 import httpx
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from src.schemas.events_provider import (
     EventsListResponse,
@@ -8,6 +16,8 @@ from src.schemas.events_provider import (
     UnregisterRequest,
     UnregisterResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class EventsProviderClient:
@@ -28,6 +38,12 @@ class EventsProviderClient:
             timeout=30.0,
         )
 
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        reraise=True,
+    )
     async def events(
         self, changed_at: str, cursor: str | None = None
     ) -> EventsListResponse:
@@ -40,12 +56,24 @@ class EventsProviderClient:
         response.raise_for_status()
         return EventsListResponse.model_validate(response.json())
 
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        reraise=True,
+    )
     async def seats(self, event_id: str) -> SeatsResponse:
         """Получение списка свободных мест для события."""
         response = await self._client.get(f"/api/events/{event_id}/seats/")
         response.raise_for_status()
         return SeatsResponse.model_validate(response.json())
 
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        reraise=True,
+    )
     async def register(
         self,
         event_id: str,
@@ -59,6 +87,12 @@ class EventsProviderClient:
         response.raise_for_status()
         return RegisterResponse.model_validate(response.json())
 
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        reraise=True,
+    )
     async def unregister(
         self,
         event_id: str,
