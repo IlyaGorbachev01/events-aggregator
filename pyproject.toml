@@ -1,0 +1,84 @@
+[project]
+name = "events-aggregator"
+version = "0.1.0"
+description = "Backend сервис-агрегатор для работы с системой управления событиями"
+readme = "README.md"
+authors = [
+    { name = "Ilya Gorbachev", email = "ilya-gorbachev01@yandex.ru" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "apscheduler>=3.11.3",
+    "asyncpg>=0.31.0",
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
+    "sqlalchemy[asyncio]>=2.0.52",
+    "uvicorn[standard]>=0.52.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-mock>=3.15.1",
+    "ruff>=0.16.5",
+]
+
+[tool.ruff]
+line-length = 88  # Значение по умолчанию для ruff, но отличается от PEP8
+target-version = "py313"
+
+extend-exclude = [
+    "alembic/versions",  # Автогенерируемые миграции
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors — ошибки стиля PEP8
+    "W",    # pycodestyle warnings — предупреждения стиля
+    "F",    # pyflakes — неиспользуемые импорты, переменные
+    "I",    # isort — группировка импортов
+    "UP",   # pyupgrade — модернизирует синтаксис
+    "N",    # pep8-naming — нейминг
+    "ANN",  # flake8-annotations — аннотации типов
+    "D",    # pydocstyle — docstrings
+    "B",    # flake8-bugbear — ловит частые баги
+    "C4",   # flake8-comprehensions — улучшения генераторов
+    "SIM",  # flake8-simplify — упрощение кода
+    "ARG",  # flake8-unused-arguments — неиспользуемые аргументы
+    "PIE",  # flake8-pie — разные полезные проверки
+    "RET",  # flake8-return — стиль return
+    "PT",   # flake8-pytest-style — стиль тестов pytest
+    "RUF",  # Ruff-specific rules — собственные правила Ruff
+    "TC",   # flake8-type-checking — оптимизация импортов типов
+]
+
+ignore = [
+    "D100",     # Missing docstring in public module
+    "D104",     # Missing docstring in public package
+    "ANN401",   # Dynamically typed expressions (typing.Any)
+    "SIM108",   # Use ternary operator
+    "RUF001",   # Checks for ambiguous Unicode characters in strings
+    "RUF002",   # Checks for ambiguous Unicode characters in docstrings
+    "RUF003",   # Checks for ambiguous Unicode characters in comments
+]
+
+unfixable = [
+    "F841",   # Не удалять автоматически неиспользуемые переменные
+    "ERA001", # Не удалять закомментированный код автоматически
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
