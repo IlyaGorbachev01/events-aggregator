@@ -5,4 +5,4 @@ set -e
 uv run alembic upgrade head
 
 # Запускаем FastAPI сервер
-uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 2
+uv run uvicorn src.main:app --host 0.0.0.0 --port 8000

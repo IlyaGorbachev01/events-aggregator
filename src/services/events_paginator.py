@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from src.schemas.events_provider import EventResponse
     from src.services.events_provider_client import EventsProviderClient
 
+
 class EventsPaginator:
     """Асинхронный итератор для обхода всех страниц событий Events Provider API."""
 

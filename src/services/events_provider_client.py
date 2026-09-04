@@ -36,6 +36,7 @@ class EventsProviderClient:
             base_url=self._base_url,
             headers={"x-api-key": api_key},
             timeout=30.0,
+            follow_redirects=True,
         )
 
     @retry(
