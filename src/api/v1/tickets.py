@@ -35,6 +35,7 @@ async def create_ticket(
         email=data.email,
         seat=data.seat,
     )
+    await session.commit()
     return CreateTicketResponse(ticket_id=ticket_id)
 
 
@@ -49,4 +50,5 @@ async def cancel_ticket(
     usecase = CancelTicketUsecase(client, ticket_repo)
 
     success = await usecase.execute(ticket_id)
+    await session.commit()
     return CancelTicketResponse(success=success)
