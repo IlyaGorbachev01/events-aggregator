@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from src.api.v1 import events, health, sync, tickets
@@ -14,7 +15,6 @@ from src.core.exceptions import (
 from src.core.lifespan import lifespan
 from src.core.logging import setup_logging
 
-# Настраиваем логирование при импорте
 setup_logging()
 
 
@@ -26,6 +26,16 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+
+    # Глобальный обработчик ошибок валидации Pydantic (возвращаем 400 вместо 422)
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        _request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": exc.errors()},
+        )
 
     # Глобальные обработчики бизнес-исключений
     @app.exception_handler(EventNotFoundError)
