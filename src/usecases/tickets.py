@@ -3,6 +3,7 @@ from datetime import datetime
 
 from cachetools import TTLCache
 
+from src.core.enums import EventStatus
 from src.core.exceptions import (
     EventNotFoundError,
     EventNotPublishedError,
@@ -60,7 +61,7 @@ class CreateTicketUsecase:
             raise EventNotFoundError(f"Event {event_id} not found")
 
         # 2. Проверяем статус события
-        if event.status != "published":
+        if event.status != EventStatus.PUBLISHED:
             raise EventNotPublishedError(f"Event {event_id} is not published")
 
         # 3. Проверяем дедлайн регистрации

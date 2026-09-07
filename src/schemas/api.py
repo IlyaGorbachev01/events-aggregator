@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr
 
+from src.core.enums import EventStatus
+
 
 class PlaceSchema(BaseModel):
     """Схема площадки для API ответов."""
@@ -30,7 +32,7 @@ class EventSchema(BaseModel):
     place: PlaceSchema
     event_time: datetime
     registration_deadline: datetime
-    status: str
+    status: EventStatus
     number_of_visitors: int
 
 

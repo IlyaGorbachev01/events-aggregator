@@ -7,6 +7,7 @@ from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database import Base
+from src.core.enums import EventStatus
 
 if TYPE_CHECKING:
     from src.models import Place, Ticket
@@ -26,7 +27,11 @@ class Event(Base):
     registration_deadline: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
-    status: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[EventStatus] = mapped_column(
+        String,
+        nullable=False,
+        default=EventStatus.NEW,
+    )
     number_of_visitors: Mapped[int] = mapped_column(Integer, default=0)
     changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False

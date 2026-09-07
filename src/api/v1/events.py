@@ -3,6 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from src.api.deps import ClientDep, SessionDep
+from src.core.enums import EventStatus
 from src.repositories.event import EventRepository
 from src.schemas.api import (
     EventDetailSchema,
@@ -97,7 +98,7 @@ async def get_seats(
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    if event.status != "published":
+    if event.status != EventStatus.PUBLISHED:
         raise HTTPException(status_code=400, detail="Event is not published")
 
     try:

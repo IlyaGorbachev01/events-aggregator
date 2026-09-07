@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from src.core.enums import EventStatus
+
 # === Mixins ===
 
 
@@ -51,7 +53,7 @@ class EventResponse(TimestampMixin):
     place: PlaceResponse
     event_time: datetime
     registration_deadline: datetime
-    status: str
+    status: EventStatus
     number_of_visitors: int
     status_changed_at: datetime
 
