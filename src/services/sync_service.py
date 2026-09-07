@@ -34,7 +34,7 @@ class SyncService:
         try:
             # Получаем last_changed_at из метаданных
             metadata = await self._sync_repo.get()
-            changed_at = "2026-01-01"
+            changed_at = "2020-01-01"
             if metadata:
                 changed_at = metadata.last_changed_at.strftime("%Y-%m-%d")
 

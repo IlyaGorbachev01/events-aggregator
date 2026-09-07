@@ -13,7 +13,7 @@ class EventsPaginator:
     def __init__(
         self,
         client: EventsProviderClient,
-        changed_at: str = "2026-01-01",
+        changed_at: str = "2020-01-01",
     ) -> None:
         """Инициализация пагинатора.
 
