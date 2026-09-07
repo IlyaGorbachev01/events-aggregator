@@ -20,3 +20,11 @@ class TicketNotFoundError(Exception):
 
 class InvalidEmailError(Exception):
     """Некорректный email."""
+
+
+class ProviderUnavailableError(Exception):
+    """Провайдер событий недоступен (5xx)."""
+
+
+class ProviderAuthError(Exception):
+    """Ошибка аутентификации с провайдером (401)."""
