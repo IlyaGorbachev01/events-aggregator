@@ -58,6 +58,7 @@ select = [
     "PT",   # flake8-pytest-style — стиль тестов pytest
     "RUF",  # Ruff-specific rules — собственные правила Ruff
     "TC",   # flake8-type-checking — оптимизация импортов типов
+    "G",    # flake8-logging-format — форматирование в логах
 ]
 
 ignore = [

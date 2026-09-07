@@ -38,7 +38,7 @@ class SyncService:
             if metadata:
                 changed_at = metadata.last_changed_at.strftime("%Y-%m-%d")
 
-            logger.info(f"Syncing events changed after {changed_at}")
+            logger.info("Syncing events changed after %s", changed_at)
 
             # Создаем пагинатор
             paginator = EventsPaginator(self._client, changed_at)
@@ -72,10 +72,12 @@ class SyncService:
                 )
                 await self._session.commit()
 
-            logger.info(f"Sync completed successfully. Processed {events_count} events")
+            logger.info(
+                "Sync completed successfully. Processed %d events", events_count
+            )
 
         except Exception as e:
-            logger.error(f"Sync failed: {e}", exc_info=True)
+            logger.exception("Sync failed: %s", e)
             await self._session.rollback()
 
             # Сохраняем статус ошибки
@@ -89,6 +91,6 @@ class SyncService:
                 )
                 await self._session.commit()
             except Exception as meta_error:
-                logger.error(f"Failed to save sync metadata: {meta_error}")
+                logger.error("Failed to save sync metadata: %s", meta_error)
 
             raise

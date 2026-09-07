@@ -24,7 +24,7 @@ async def run_sync_task() -> None:
             sync_service = SyncService(client, session)
             await sync_service.sync()
         except Exception as e:
-            logger.error(f"Manual sync failed: {e}", exc_info=True)
+            logger.exception("Manual sync failed: %s", e)
         finally:
             await client.close()
 

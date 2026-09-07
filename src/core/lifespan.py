@@ -51,7 +51,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     # Запускаем планировщик
     scheduler.start()
     logger.info(
-        f"Scheduler started. Sync interval: {settings.sync_interval_minutes} minutes"
+        "Scheduler started. Sync interval: %d minutes", settings.sync_interval_minutes
     )
 
     # Выполняем первичную синхронизацию при старте
@@ -59,7 +59,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         logger.info("Running initial sync on startup")
         await scheduled_sync()
     except Exception as e:
-        logger.error(f"Initial sync failed: {e}", exc_info=True)
+        logger.exception("Initial sync failed: %s", e)
 
     yield
 

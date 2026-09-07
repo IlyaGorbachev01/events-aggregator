@@ -51,7 +51,7 @@ class CreateTicketUsecase:
         Returns:
             ticket_id от провайдера
         """
-        logger.info(f"Creating ticket for event {event_id}, seat {seat}")
+        logger.info("Creating ticket for event %s, seat %s", event_id, seat)
 
         # 1. Проверяем событие
         event = await self._events.get(event_id)
@@ -94,7 +94,7 @@ class CreateTicketUsecase:
             seat=seat,
         )
 
-        logger.info(f"Ticket created successfully: {ticket_id}")
+        logger.info("Ticket created successfully: %s", ticket_id)
         return ticket_id
 
     async def _get_available_seats(self, event_id: str) -> list[str]:
@@ -129,7 +129,7 @@ class CancelTicketUsecase:
         Returns:
             True при успешной отмене
         """
-        logger.info(f"Cancelling ticket {ticket_id}")
+        logger.info("Cancelling ticket %s", ticket_id)
 
         # 1. Получаем билет из своей БД
         ticket = await self._tickets.get_by_ticket_id(ticket_id)
@@ -145,6 +145,6 @@ class CancelTicketUsecase:
         if response.success:
             # 3. Удаляем из своей БД
             await self._tickets.delete(ticket)
-            logger.info(f"Ticket cancelled successfully: {ticket_id}")
+            logger.info("Ticket cancelled successfully: %s", ticket_id)
 
         return response.success
