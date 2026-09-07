@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from src.api.deps import ClientDep, SessionDep
-from src.core.enums import EventStatus
+from src.core.exceptions import EventNotFoundError, EventNotPublishedError
 from src.repositories.event import EventRepository
 from src.schemas.api import (
     EventDetailSchema,
@@ -11,6 +11,7 @@ from src.schemas.api import (
     PaginatedEventsResponse,
     SeatsResponse,
 )
+from src.usecases.seats import GetSeatsUsecase
 
 router = APIRouter(prefix="/api/events", tags=["Events"])
 
@@ -92,22 +93,17 @@ async def get_seats(
     client: ClientDep,
 ) -> SeatsResponse:
     """Получение списка свободных мест для события."""
-    repo = EventRepository(session)
-    event = await repo.get(event_id)
-
-    if not event:
-        raise HTTPException(status_code=404, detail="Event not found")
-
-    if event.status != EventStatus.PUBLISHED:
-        raise HTTPException(status_code=400, detail="Event is not published")
+    event_repo = EventRepository(session)
+    usecase = GetSeatsUsecase(client, event_repo)
 
     try:
-        seats_response = await client.seats(event_id)
-        return SeatsResponse(
-            event_id=event_id,
-            available_seats=seats_response.seats,
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to fetch seats: {e!s}"
-        ) from e
+        available_seats = await usecase.execute(event_id)
+    except EventNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except EventNotPublishedError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    return SeatsResponse(
+        event_id=event_id,
+        available_seats=available_seats,
+    )
