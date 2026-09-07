@@ -59,6 +59,7 @@ select = [
     "RUF",  # Ruff-specific rules — собственные правила Ruff
     "TC",   # flake8-type-checking — оптимизация импортов типов
     "G",    # flake8-logging-format — форматирование в логах
+    "PLC0415", # import-outside-top-level — импорты на уровне модуля
 ]
 
 ignore = [

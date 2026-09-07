@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from urllib.parse import parse_qs, urlparse
 
 if TYPE_CHECKING:
     from src.schemas.events_provider import EventResponse
@@ -58,8 +59,6 @@ class EventsPaginator:
     @staticmethod
     def _extract_cursor_from_url(url: str) -> str | None:
         """Извлекает курсор из URL следующей страницы."""
-        from urllib.parse import parse_qs, urlparse
-
         parsed = urlparse(url)
         params = parse_qs(parsed.query)
         cursor_list = params.get("cursor")

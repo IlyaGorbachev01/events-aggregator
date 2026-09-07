@@ -12,6 +12,7 @@ from src.core.exceptions import (
 )
 from src.repositories.event import EventRepository
 from src.repositories.ticket import TicketRepository
+from src.schemas.events_provider import RegisterRequest, UnregisterRequest
 from src.services.events_provider_client import EventsProviderClient
 
 logger = logging.getLogger(__name__)
@@ -73,8 +74,6 @@ class CreateTicketUsecase:
             raise SeatNotAvailableError(f"Seat {seat} is not available")
 
         # 5. Регистрируем в провайдере
-        from src.schemas.events_provider import RegisterRequest
-
         request = RegisterRequest(
             first_name=first_name,
             last_name=last_name,
@@ -137,8 +136,6 @@ class CancelTicketUsecase:
             raise TicketNotFoundError(f"Ticket {ticket_id} not found")
 
         # 2. Отменяем регистрацию в провайдере
-        from src.schemas.events_provider import UnregisterRequest
-
         request = UnregisterRequest(ticket_id=ticket_id)
         response = await self._client.unregister(ticket.event_id, request)
 
