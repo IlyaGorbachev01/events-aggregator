@@ -8,6 +8,8 @@ from src.core.exceptions import (
     EventNotFoundError,
     EventNotPublishedError,
     InvalidEmailError,
+    ProviderAuthError,
+    ProviderUnavailableError,
     RegistrationDeadlineError,
     SeatNotAvailableError,
     TicketNotFoundError,
@@ -73,6 +75,18 @@ def create_app() -> FastAPI:
         _request: Request, exc: InvalidEmailError
     ) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.exception_handler(ProviderUnavailableError)
+    async def provider_unavailable_handler(
+        _request: Request, exc: ProviderUnavailableError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=502, content={"detail": str(exc)})
+
+    @app.exception_handler(ProviderAuthError)
+    async def provider_auth_handler(
+        _request: Request, exc: ProviderAuthError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
 
     app.include_router(health.router)
     app.include_router(events.router)

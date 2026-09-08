@@ -66,12 +66,12 @@ class GetSeatsUsecase:
                 raise EventNotFoundError(
                     "Event %s not found in provider", event_id
                 ) from e
-            elif status_code == 401:
+            if status_code == 401:
                 logger.error("Provider authentication failed")
                 raise ProviderAuthError("Provider authentication failed") from e
-            elif status_code >= 500:
+            if status_code >= 500:
                 logger.error("Provider unavailable: %d", status_code)
                 raise ProviderUnavailableError("Provider unavailable") from e
-            else:
-                logger.error("Unexpected provider error: %d", status_code)
-                raise ProviderUnavailableError("Unexpected provider error") from e
+
+            logger.error("Unexpected provider error: %d", status_code)
+            raise ProviderUnavailableError("Unexpected provider error") from e

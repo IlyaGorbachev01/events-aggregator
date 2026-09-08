@@ -3,7 +3,12 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from src.api.deps import ClientDep, SessionDep
-from src.core.exceptions import EventNotFoundError, EventNotPublishedError
+from src.core.exceptions import (
+    EventNotFoundError,
+    EventNotPublishedError,
+    ProviderAuthError,
+    ProviderUnavailableError,
+)
 from src.repositories.event import EventRepository
 from src.schemas.api import (
     EventDetailSchema,
@@ -102,6 +107,12 @@ async def get_seats(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except EventNotPublishedError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except ProviderUnavailableError as e:
+        raise HTTPException(status_code=502, detail="Provider unavailable") from e
+    except ProviderAuthError as e:
+        raise HTTPException(
+            status_code=500, detail="Provider authentication failed"
+        ) from e
 
     return SeatsResponse(
         event_id=event_id,

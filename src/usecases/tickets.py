@@ -1,12 +1,14 @@
 import logging
 from datetime import datetime
 
-from cachetools import TTLCache
+import httpx
 
 from src.core.enums import EventStatus
 from src.core.exceptions import (
     EventNotFoundError,
     EventNotPublishedError,
+    ProviderAuthError,
+    ProviderUnavailableError,
     RegistrationDeadlineError,
     SeatNotAvailableError,
     TicketNotFoundError,
@@ -15,6 +17,8 @@ from src.repositories.event import EventRepository
 from src.repositories.ticket import TicketRepository
 from src.schemas.events_provider import RegisterRequest, UnregisterRequest
 from src.services.events_provider_client import EventsProviderClient
+from src.services.seats_cache import seats_cache
+from src.usecases.seats import GetSeatsUsecase
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +42,6 @@ class CreateTicketUsecase:
         self._client = client
         self._events = events
         self._tickets = tickets
-        self._seats_cache: TTLCache = TTLCache(maxsize=100, ttl=30)
 
     async def execute(
         self,
@@ -55,33 +58,51 @@ class CreateTicketUsecase:
         """
         logger.info("Creating ticket for event %s, seat %s", event_id, seat)
 
-        # 1. Проверяем событие
+        # Проверяем событие
         event = await self._events.get(event_id)
         if not event:
             raise EventNotFoundError(f"Event {event_id} not found")
 
-        # 2. Проверяем статус события
+        # Проверяем статус события
         if event.status != EventStatus.PUBLISHED:
             raise EventNotPublishedError(f"Event {event_id} is not published")
 
-        # 3. Проверяем дедлайн регистрации
+        # Проверяем дедлайн регистрации
         now = datetime.now().astimezone()
         if now > event.registration_deadline:
             raise RegistrationDeadlineError("Registration deadline has passed")
 
-        # 4. Проверяем доступность места (с кэшированием)
-        available_seats = await self._get_available_seats(event_id)
+        # Проверяем доступность места через usecase (с кэшем)
+        seats_usecase = GetSeatsUsecase(self._client, self._events)
+        try:
+            available_seats = await seats_usecase.execute(event_id)
+        except (EventNotFoundError, EventNotPublishedError):
+            raise
+        except (ProviderUnavailableError, ProviderAuthError) as e:
+            logger.error("Failed to check seat availability: %s", e)
+            raise SeatNotAvailableError("Unable to verify seat availability") from e
+
         if seat not in available_seats:
             raise SeatNotAvailableError(f"Seat {seat} is not available")
 
-        # 5. Регистрируем в провайдере
+        # Регистрируем в провайдере
         request = RegisterRequest(
             first_name=first_name,
             last_name=last_name,
             seat=seat,
             email=email,
         )
-        response = await self._client.register(event_id, request)
+
+        try:
+            response = await self._client.register(event_id, request)
+        except httpx.HTTPStatusError as e:
+            status_code = e.response.status_code
+            if status_code == 401:
+                raise ProviderAuthError("Provider authentication failed") from e
+            if status_code >= 500:
+                raise ProviderUnavailableError("Provider unavailable") from e
+            raise
+
         ticket_id = response.ticket_id
 
         # 6. Сохраняем в своей БД
@@ -94,16 +115,11 @@ class CreateTicketUsecase:
             seat=seat,
         )
 
+        # Инвалидируем кэш мест после регистрации
+        seats_cache.invalidate(event_id)
+
         logger.info("Ticket created successfully: %s", ticket_id)
         return ticket_id
-
-    async def _get_available_seats(self, event_id: str) -> list[str]:
-        """Получение списка свободных мест с кэшированием."""
-        if event_id not in self._seats_cache:
-            response = await self._client.seats(event_id)
-            self._seats_cache[event_id] = response.seats
-
-        return self._seats_cache[event_id]
 
 
 class CancelTicketUsecase:
@@ -138,11 +154,22 @@ class CancelTicketUsecase:
 
         # 2. Отменяем регистрацию в провайдере
         request = UnregisterRequest(ticket_id=ticket_id)
-        response = await self._client.unregister(ticket.event_id, request)
+
+        try:
+            response = await self._client.unregister(ticket.event_id, request)
+        except httpx.HTTPStatusError as e:
+            status_code = e.response.status_code
+            if status_code == 401:
+                raise ProviderAuthError("Provider authentication failed") from e
+            if status_code >= 500:
+                raise ProviderUnavailableError("Provider unavailable") from e
+            raise
 
         if response.success:
             # 3. Удаляем из своей БД
             await self._tickets.delete(ticket)
+            # Инвалидируем кэш мест после отмены
+            seats_cache.invalidate(ticket.event_id)
             logger.info("Ticket cancelled successfully: %s", ticket_id)
 
         return response.success
