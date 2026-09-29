@@ -3,7 +3,7 @@ from datetime import datetime
 
 import httpx
 
-from src.core.enums import EventStatus
+from src.core.enums import EventStatus, OutboxEventType
 from src.core.exceptions import (
     EventNotFoundError,
     EventNotPublishedError,
@@ -14,6 +14,7 @@ from src.core.exceptions import (
     TicketNotFoundError,
 )
 from src.repositories.event import EventRepository
+from src.repositories.outbox import OutboxRepository
 from src.repositories.ticket import TicketRepository
 from src.schemas.events_provider import RegisterRequest, UnregisterRequest
 from src.services.events_provider_client import EventsProviderClient
@@ -31,6 +32,7 @@ class CreateTicketUsecase:
         client: EventsProviderClient,
         events: EventRepository,
         tickets: TicketRepository,
+        outbox: OutboxRepository | None = None,
     ) -> None:
         """Инициализация UseCase создания билета.
 
@@ -38,10 +40,12 @@ class CreateTicketUsecase:
             client: Клиент Events Provider API
             events: Репозиторий событий
             tickets: Репозиторий билетов
+            outbox: Репозиторий outbox (опционально, для записи событий)
         """
         self._client = client
         self._events = events
         self._tickets = tickets
+        self._outbox = outbox
 
     async def execute(
         self,
@@ -114,6 +118,28 @@ class CreateTicketUsecase:
             email=email,
             seat=seat,
         )
+
+        # Пишем событие «билет куплен» в outbox — в той же транзакции,
+        # что и билет. Либо сохраняются оба, либо откатываются оба.
+        if self._outbox is not None:
+            payload = {
+                "event_type": str(OutboxEventType.TICKET_PURCHASED),
+                "ticket_id": ticket_id,
+                "event_id": event_id,
+                "event_name": event.name,
+                "first_name": first_name,
+                "last_name": last_name,
+                "email": email,
+                "seat": seat,
+                "message": (
+                    f"Вы успешно зарегистрированы на мероприятие - "
+                    f"{event.name}. Место: {seat}."
+                ),
+            }
+            await self._outbox.add(
+                event_type=OutboxEventType.TICKET_PURCHASED,
+                payload=payload,
+            )
 
         # Инвалидируем кэш мест после регистрации
         seats_cache.invalidate(event_id)

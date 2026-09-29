@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from src.api.deps import ClientDep, SessionDep
 from src.repositories.event import EventRepository
+from src.repositories.outbox import OutboxRepository
 from src.repositories.ticket import TicketRepository
 from src.schemas.api import (
     CancelTicketResponse,
@@ -26,7 +27,8 @@ async def create_ticket(
     """Создание билета (регистрация на мероприятие)."""
     event_repo = EventRepository(session)
     ticket_repo = TicketRepository(session)
-    usecase = CreateTicketUsecase(client, event_repo, ticket_repo)
+    outbox_repo = OutboxRepository(session)
+    usecase = CreateTicketUsecase(client, event_repo, ticket_repo, outbox_repo)
 
     ticket_id = await usecase.execute(
         event_id=data.event_id,
