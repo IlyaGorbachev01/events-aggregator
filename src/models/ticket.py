@@ -28,7 +28,7 @@ class Ticket(Base):
     email: Mapped[str] = mapped_column(String, nullable=False)
     seat: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.now(UTC),
+        DateTime(timezone=True), default=lambda: datetime.now(UTC),
     )
 
     event: Mapped[Event] = relationship(back_populates="tickets")

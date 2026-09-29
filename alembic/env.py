@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from src.core.config import settings
 from src.core.database import Base
-from src.models import Event, Place, SyncMetadata, Ticket  # noqa: F401
+from src.models import Event, OutboxMessage, Place, SyncMetadata, Ticket  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
