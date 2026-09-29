@@ -73,7 +73,7 @@ class SyncService:
                 await self._session.commit()
 
             logger.info(
-                "Sync completed successfully. Processed %d events", events_count
+                "Sync completed successfully. Processed %d events", events_count,
             )
 
         except Exception as e:

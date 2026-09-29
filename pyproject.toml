@@ -41,35 +41,39 @@ extend-exclude = [
 
 [tool.ruff.lint]
 select = [
-    "E",    # pycodestyle errors — ошибки стиля PEP8
-    "W",    # pycodestyle warnings — предупреждения стиля
-    "F",    # pyflakes — неиспользуемые импорты, переменные
-    "I",    # isort — группировка импортов
-    "UP",   # pyupgrade — модернизирует синтаксис
-    "N",    # pep8-naming — нейминг
-    "ANN",  # flake8-annotations — аннотации типов
-    "D",    # pydocstyle — docstrings
-    "B",    # flake8-bugbear — ловит частые баги
-    "C4",   # flake8-comprehensions — улучшения генераторов
-    "SIM",  # flake8-simplify — упрощение кода
-    "ARG",  # flake8-unused-arguments — неиспользуемые аргументы
-    "PIE",  # flake8-pie — разные полезные проверки
-    "RET",  # flake8-return — стиль return
-    "PT",   # flake8-pytest-style — стиль тестов pytest
-    "RUF",  # Ruff-specific rules — собственные правила Ruff
-    "TC",   # flake8-type-checking — оптимизация импортов типов
-    "G",    # flake8-logging-format — форматирование в логах
-    "PLC0415", # import-outside-top-level — импорты на уровне модуля
+    "ANN",      # flake8-annotations
+    "ARG",      # flake8-unused-arguments
+    "ASYNC",    # flake8-async
+    "B",        # flake8-bugbear
+    "C4",       # flake8-comprehensions
+    "COM",      # flake8-commas
+    "D",        # pydocstyle
+    "E",        # pycodestyle
+    "F",        # pyflakes
+    "G",        # flake8-logging-format
+    "I",        # isort
+    "N",        # pep8-naming
+    "PIE",      # flake8-pie
+    "PLC0415",  # import-outside-top-level
+    "PT",       # flake8-pytest-style
+    "Q",        # flake8-quotes
+    "RET",      # flake8-return
+    "RUF",      # Ruff
+    "SIM",      # flake8-simplify
+    "TC",       # flake8-type-checking
+    "UP",       # pyupgrade
+    "W",        # pycodestyle (warnings)
 ]
 
 ignore = [
+    "ANN401",   # Dynamically typed expressions (typing.Any)
     "D100",     # Missing docstring in public module
     "D104",     # Missing docstring in public package
-    "ANN401",   # Dynamically typed expressions (typing.Any)
-    "SIM108",   # Use ternary operator
+    "D107",     # Missing docstring in `__init__`
     "RUF001",   # Checks for ambiguous Unicode characters in strings
     "RUF002",   # Checks for ambiguous Unicode characters in docstrings
     "RUF003",   # Checks for ambiguous Unicode characters in comments
+    "SIM108",   # Use ternary operator
 ]
 
 unfixable = [
@@ -82,6 +86,10 @@ convention = "google"
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

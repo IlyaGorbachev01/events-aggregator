@@ -19,7 +19,7 @@ class Ticket(Base):
     __tablename__ = "tickets"
 
     id: Mapped[str] = mapped_column(
-        String, primary_key=True, default=lambda: str(uuid4())
+        String, primary_key=True, default=lambda: str(uuid4()),
     )
     event_id: Mapped[str] = mapped_column(ForeignKey("events.id"), nullable=False)
     ticket_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
@@ -28,7 +28,7 @@ class Ticket(Base):
     email: Mapped[str] = mapped_column(String, nullable=False)
     seat: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.now(UTC)
+        DateTime(timezone=True), default=datetime.now(UTC),
     )
 
     event: Mapped[Event] = relationship(back_populates="tickets")

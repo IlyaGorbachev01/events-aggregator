@@ -51,7 +51,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     # Запускаем планировщик
     scheduler.start()
     logger.info(
-        "Scheduler started. Sync interval: %d minutes", settings.sync_interval_minutes
+        "Scheduler started. Sync interval: %d minutes", settings.sync_interval_minutes,
     )
 
     # Выполняем первичную синхронизацию при старте

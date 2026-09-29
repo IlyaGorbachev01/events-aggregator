@@ -42,10 +42,10 @@ async def test_events_success(client: EventsProviderClient) -> None:
                         "changed_at": "2026-01-04T22:28:35.325270+03:00",
                         "created_at": "2026-01-04T22:28:35.325302+03:00",
                         "status_changed_at": "2026-01-04T22:28:35.325386+03:00",
-                    }
+                    },
                 ],
             },
-        )
+        ),
     )
 
     result = await client.events("2026-01-01")
@@ -63,7 +63,7 @@ async def test_events_with_cursor(client: EventsProviderClient) -> None:
         return_value=httpx.Response(
             200,
             json={"next": None, "previous": None, "results": []},
-        )
+        ),
     )
 
     await client.events("2026-01-01", cursor="abc123")
@@ -76,7 +76,7 @@ async def test_events_with_cursor(client: EventsProviderClient) -> None:
 async def test_seats_success(client: EventsProviderClient) -> None:
     """Тест успешного получения списка мест."""
     respx.get("http://test.com/api/events/event-uuid/seats/").mock(
-        return_value=httpx.Response(200, json={"seats": ["A1", "A2", "B1"]})
+        return_value=httpx.Response(200, json={"seats": ["A1", "A2", "B1"]}),
     )
 
     result = await client.seats("event-uuid")
@@ -89,7 +89,7 @@ async def test_seats_success(client: EventsProviderClient) -> None:
 async def test_register_success(client: EventsProviderClient) -> None:
     """Тест успешной регистрации."""
     respx.post("http://test.com/api/events/event-uuid/register/").mock(
-        return_value=httpx.Response(201, json={"ticket_id": "ticket-uuid"})
+        return_value=httpx.Response(201, json={"ticket_id": "ticket-uuid"}),
     )
 
     request = RegisterRequest(
@@ -108,7 +108,7 @@ async def test_register_success(client: EventsProviderClient) -> None:
 async def test_unregister_success(client: EventsProviderClient) -> None:
     """Тест успешной отмены регистрации."""
     respx.delete("http://test.com/api/events/event-uuid/unregister/").mock(
-        return_value=httpx.Response(200, json={"success": True})
+        return_value=httpx.Response(200, json={"success": True}),
     )
 
     request = UnregisterRequest(ticket_id="ticket-uuid")

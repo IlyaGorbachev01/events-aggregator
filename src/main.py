@@ -32,7 +32,8 @@ def create_app() -> FastAPI:
     # Глобальный обработчик ошибок валидации Pydantic (возвращаем 400 вместо 422)
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(
-        _request: Request, exc: RequestValidationError
+        _request: Request,
+        exc: RequestValidationError,
     ) -> JSONResponse:
         return JSONResponse(
             status_code=400,
@@ -42,49 +43,49 @@ def create_app() -> FastAPI:
     # Глобальные обработчики бизнес-исключений
     @app.exception_handler(EventNotFoundError)
     async def event_not_found_handler(
-        _request: Request, exc: EventNotFoundError
+        _request: Request, exc: EventNotFoundError,
     ) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})
 
     @app.exception_handler(TicketNotFoundError)
     async def ticket_not_found_handler(
-        _request: Request, exc: TicketNotFoundError
+        _request: Request, exc: TicketNotFoundError,
     ) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})
 
     @app.exception_handler(EventNotPublishedError)
     async def event_not_published_handler(
-        _request: Request, exc: EventNotPublishedError
+        _request: Request, exc: EventNotPublishedError,
     ) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
     @app.exception_handler(RegistrationDeadlineError)
     async def registration_deadline_handler(
-        _request: Request, exc: RegistrationDeadlineError
+        _request: Request, exc: RegistrationDeadlineError,
     ) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
     @app.exception_handler(SeatNotAvailableError)
     async def seat_not_available_handler(
-        _request: Request, exc: SeatNotAvailableError
+        _request: Request, exc: SeatNotAvailableError,
     ) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
     @app.exception_handler(InvalidEmailError)
     async def invalid_email_handler(
-        _request: Request, exc: InvalidEmailError
+        _request: Request, exc: InvalidEmailError,
     ) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
     @app.exception_handler(ProviderUnavailableError)
     async def provider_unavailable_handler(
-        _request: Request, exc: ProviderUnavailableError
+        _request: Request, exc: ProviderUnavailableError,
     ) -> JSONResponse:
         return JSONResponse(status_code=502, content={"detail": str(exc)})
 
     @app.exception_handler(ProviderAuthError)
     async def provider_auth_handler(
-        _request: Request, exc: ProviderAuthError
+        _request: Request, exc: ProviderAuthError,
     ) -> JSONResponse:
         return JSONResponse(status_code=500, content={"detail": str(exc)})
 

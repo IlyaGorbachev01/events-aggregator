@@ -64,7 +64,7 @@ class GetSeatsUsecase:
             if status_code == 404:
                 logger.warning("Event %s not found in provider", event_id)
                 raise EventNotFoundError(
-                    "Event %s not found in provider", event_id
+                    "Event %s not found in provider", event_id,
                 ) from e
             if status_code == 401:
                 logger.error("Provider authentication failed")
