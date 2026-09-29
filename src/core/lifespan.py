@@ -71,7 +71,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     yield
 
-     # Останавливаем планировщик и воркер при shutdown
+    # Останавливаем планировщик и воркер при shutdown
     scheduler.shutdown(wait=False)
     logger.info("Scheduler stopped")
 
