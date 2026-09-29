@@ -26,7 +26,8 @@ async def list_events(
     request: Request,
     session: SessionDep,
     date_from: str | None = Query(
-        None, description="Фильтр по дате начала (YYYY-MM-DD)",
+        None,
+        description="Фильтр по дате начала (YYYY-MM-DD)",
     ),
     page: int = Query(1, ge=1, description="Номер страницы"),
     page_size: int = Query(20, ge=1, le=100, description="Размер страницы"),
@@ -41,13 +42,16 @@ async def list_events(
             date_from_dt = datetime.fromisoformat(date_from)
         except ValueError:
             raise HTTPException(
-                status_code=400, detail="Invalid date format. Use YYYY-MM-DD",
+                status_code=400,
+                detail="Invalid date format. Use YYYY-MM-DD",
             ) from None
 
     # Получение данных
     offset = (page - 1) * page_size
     events, total = await repo.list(
-        date_from=date_from_dt, offset=offset, limit=page_size,
+        date_from=date_from_dt,
+        offset=offset,
+        limit=page_size,
     )
 
     # Формирование URL для пагинации
@@ -111,7 +115,8 @@ async def get_seats(
         raise HTTPException(status_code=502, detail="Provider unavailable") from e
     except ProviderAuthError as e:
         raise HTTPException(
-            status_code=500, detail="Provider authentication failed",
+            status_code=500,
+            detail="Provider authentication failed",
         ) from e
 
     return SeatsResponse(

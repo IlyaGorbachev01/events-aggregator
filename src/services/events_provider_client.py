@@ -46,7 +46,9 @@ class EventsProviderClient:
         reraise=True,
     )
     async def events(
-        self, changed_at: str, cursor: str | None = None,
+        self,
+        changed_at: str,
+        cursor: str | None = None,
     ) -> EventsListResponse:
         """Получение списка событий с поддержкой пагинации."""
         params = {"changed_at": changed_at}

@@ -24,17 +24,24 @@ class OutboxMessage(Base):
     )
 
     id: Mapped[str] = mapped_column(
-        String, primary_key=True, default=lambda: str(uuid4()),
+        String,
+        primary_key=True,
+        default=lambda: str(uuid4()),
     )
     event_type: Mapped[OutboxEventType] = mapped_column(String, nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     status: Mapped[OutboxStatus] = mapped_column(
-        String, nullable=False, default=OutboxStatus.PENDING,
+        String,
+        nullable=False,
+        default=OutboxStatus.PENDING,
     )
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False,
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        nullable=False,
     )
     sent_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
     )

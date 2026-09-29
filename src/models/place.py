@@ -23,10 +23,12 @@ class Place(Base):
     address: Mapped[str] = mapped_column(String, nullable=False)
     seats_pattern: Mapped[str] = mapped_column(String, nullable=False)
     changed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
+        DateTime(timezone=True),
+        nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
+        DateTime(timezone=True),
+        nullable=False,
     )
 
     events: Mapped[list[Event]] = relationship(back_populates="place")

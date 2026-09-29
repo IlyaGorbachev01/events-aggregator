@@ -6,7 +6,9 @@ class Settings(BaseSettings):
     """Настройки приложения."""
 
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
     )
 
     app_name: str = "Events Aggregator"
@@ -40,17 +42,23 @@ class Settings(BaseSettings):
         # 1. Если database_url уже задан, просто нормализуем его префикс
         if self.database_url:
             self.database_url = self.database_url.replace(
-                "postgres://", "postgresql+asyncpg://", 1,
+                "postgres://",
+                "postgresql+asyncpg://",
+                1,
             )
             self.database_url = self.database_url.replace(
-                "postgresql://", "postgresql+asyncpg://", 1,
+                "postgresql://",
+                "postgresql+asyncpg://",
+                1,
             )
             return self
 
         # 2. Если есть готовая строка подключения от LMS, исправляем схему для asyncpg
         if self.postgres_connection_string:
             url = self.postgres_connection_string.replace(
-                "postgres://", "postgresql+asyncpg://", 1,
+                "postgres://",
+                "postgresql+asyncpg://",
+                1,
             )
             self.database_url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
             return self
