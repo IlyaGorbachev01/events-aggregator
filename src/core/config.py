@@ -29,6 +29,11 @@ class Settings(BaseSettings):
 
     sync_interval_minutes: int = 1440
 
+    # Outbox worker
+    outbox_poll_interval_seconds: float = 5.0
+    outbox_batch_size: int = 10
+    outbox_max_attempts: int = 5
+
     @model_validator(mode="after")
     def build_database_url(self) -> "Settings":
         """Автоматически формирует корректный DATABASE_URL для asyncpg."""
