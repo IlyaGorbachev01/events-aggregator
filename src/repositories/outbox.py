@@ -4,7 +4,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import case, func, select, update
+from sqlalchemy import func, select, update
 
 from src.core.enums import OutboxStatus
 from src.models.outbox import OutboxMessage
@@ -155,23 +155,37 @@ class OutboxRepository:
 
         Returns:
             True, если запись переведена в failed (лимит попыток исчерпан)
+
+        Raises:
+            ValueError: Если передан неизвестный message_id (запись отсутствует)
         """
         now = datetime.now(UTC)
-        new_attempts = OutboxMessage.attempts + 1
+        # Читаем текущее число попыток через ORM-объект: арифметика над
+        # колонкой (ColumnElement[int]) не типизируется mypy как int
+        # и корректно сериализуется только на уровне SQL. Python-арифметика
+        # здесь безопасна, т.к. запись зафиксирована воркером (FOR UPDATE).
+        message = await self.get_by_id(message_id)
+        if message is None:
+            raise ValueError(f"Outbox message {message_id} not found")
+
+        new_attempts = message.attempts + 1
         delay_seconds = min(
+            # 2 ** (int - 1): оба операнда — чистые int, без ColumnElement
             backoff_base_seconds * (2 ** (new_attempts - 1)),
             backoff_max_seconds,
         )
-        is_exhausted = new_attempts >= max_attempts
+        # Python-bool вместо SQLAlchemy-выражения: возврат строго bool
+        is_exhausted: bool = new_attempts >= max_attempts
         stmt = (
             update(OutboxMessage)
             .where(OutboxMessage.id == message_id)
             .values(
                 attempts=new_attempts,
                 last_error=error[:MAX_ERROR_LENGTH],
-                status=case(
-                    (is_exhausted, OutboxStatus.FAILED.value),
-                    else_=OutboxStatus.PENDING.value,
+                status=(
+                    OutboxStatus.FAILED.value
+                    if is_exhausted
+                    else OutboxStatus.PENDING.value
                 ),
                 next_attempt_at=now + timedelta(seconds=delay_seconds),
             )
@@ -179,6 +193,19 @@ class OutboxRepository:
         await self._session.execute(stmt)
         await self._session.flush()
         return is_exhausted
+
+    async def get_by_id(self, message_id: str) -> OutboxMessage | None:
+        """Получить запись outbox по идентификатору (без блокировки).
+
+        Args:
+            message_id: Идентификатор записи
+
+        Returns:
+            Запись или None, если она отсутствует
+        """
+        stmt = select(OutboxMessage).where(OutboxMessage.id == message_id)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def count_by_status(self) -> dict[str, int]:
         """Подсчитать записи по статусам (для метрик/наблюдаемости).
