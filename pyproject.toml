@@ -67,6 +67,7 @@ select = [
 
 ignore = [
     "ANN401",   # Dynamically typed expressions (typing.Any)
+    "COM812",   # Checks for the absence of trailing commas
     "D100",     # Missing docstring in public module
     "D104",     # Missing docstring in public package
     "D107",     # Missing docstring in `__init__`

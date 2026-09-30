@@ -15,10 +15,13 @@ class OutboxMessage(Base):
 
     __tablename__ = "outbox"
     __table_args__ = (
-        # Частичный индекс: эффективная выборка только неотправленных записей
+        # Частичный индекс: эффективная выборка только записей, готовых к
+        # отправке (pending) и с истёкшим сроком (backoff). Индекс покрывает
+        # сортировку fetch_pending (created_at ASC, next_attempt_at ASC).
         Index(
             "ix_outbox_pending",
             "created_at",
+            "next_attempt_at",
             postgresql_where=text("status = 'pending'"),
         ),
     )
@@ -36,6 +39,12 @@ class OutboxMessage(Base):
         default=OutboxStatus.PENDING,
     )
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+    )
+    last_error: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

@@ -35,6 +35,15 @@ class Settings(BaseSettings):
     outbox_poll_interval_seconds: float = 5.0
     outbox_batch_size: int = 10
     outbox_max_attempts: int = 5
+    outbox_backoff_base_seconds: float = 2.0
+    outbox_backoff_max_seconds: float = 300.0
+
+    # Notification service (Capashino)
+    capashino_base_url: str = (
+        "http://student-system-capashino-web.student-system-capashino.svc:8000"
+    )
+    capashino_api_key: str = ""
+    capashino_timeout_seconds: float = 10.0
 
     @model_validator(mode="after")
     def build_database_url(self) -> "Settings":

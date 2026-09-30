@@ -1,17 +1,36 @@
 """Воркер transactional outbox.
 
 Периодически читает неотправленные записи из таблицы outbox и выполняет
-их обработку. Запуск — отдельной корутиной в lifespan
-FastAPI, в том же процессе.
+доставку событий (отправку уведомлений в Capashino). Запуск — отдельной
+корутиной в lifespan FastAPI, в том же процессе.
+
+Гарантии доставки:
+- Каждое сообщение обрабатывается в собственной короткой транзакции:
+  выборка (FOR UPDATE SKIP LOCKED) -> отправка во внешний сервис ->
+  коммит нового статуса. Ошибка на одном сообщении не откатывает
+  статусы уже успешно доставленных сообщений пачки.
+- Блокировка строки удерживается только на время HTTP-вызова этого
+  сообщения; соседние записи пачки блокировок не держат.
+- Успешный ответ Capashino (201 или 409 по idempotency_key) — единственный
+  случай, когда запись помечается sent. При сетевой ошибке/5xx запись
+  остаётся pending с экспоненциальным backoff; после превышения лимита
+  попыток переводится в failed с сохранением текста последней ошибки.
 """
 
 import asyncio
 import contextlib
 import logging
+from typing import Any
 
 from src.core.config import settings
 from src.core.database import async_session
+from src.core.enums import NotificationOutcome, OutboxEventType, OutboxStatus
 from src.repositories.outbox import OutboxRepository
+from src.services.notification_client import (
+    NotificationClient,
+    NotificationDeliveryError,
+    NotificationPermanentError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,33 +38,60 @@ logger = logging.getLogger(__name__)
 class OutboxWorker:
     """Фоновый воркер доставки событий из outbox."""
 
-    def __init__(self) -> None:
-        """Инициализация воркера с параметрами из конфигурации."""
+    def __init__(self, notifier: NotificationClient | None = None) -> None:
+        """Инициализация воркера с параметрами из конфигурации.
+
+        Args:
+            notifier: Клиент уведомлений (для тестов; по умолчанию
+                      создаётся из настроек Capashino)
+        """
         self._poll_interval = settings.outbox_poll_interval_seconds
         self._batch_size = settings.outbox_batch_size
         self._max_attempts = settings.outbox_max_attempts
+        self._backoff_base = settings.outbox_backoff_base_seconds
+        self._backoff_max = settings.outbox_backoff_max_seconds
         self._stop_event = asyncio.Event()
+        if notifier is not None:
+            self._notifier = notifier
+            self._owns_notifier = False
+        else:
+            self._notifier = NotificationClient(
+                base_url=settings.capashino_base_url,
+                api_key=settings.capashino_api_key,
+                timeout=settings.capashino_timeout_seconds,
+            )
+            self._owns_notifier = True
 
     async def run(self) -> None:
         """Основной цикл воркера: опрос outbox по интервалу."""
         logger.info(
-            "Outbox worker started (interval=%.1fs, batch=%d, max_attempts=%d)",
+            (
+                "Outbox worker started (interval=%.1fs, batch=%d, "
+                "max_attempts=%d, backoff=%.1f..%.1fs)"
+            ),
             self._poll_interval,
             self._batch_size,
             self._max_attempts,
+            self._backoff_base,
+            self._backoff_max,
         )
-        while not self._stop_event.is_set():
-            try:
-                await self.process_once()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception("Outbox worker iteration failed")
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(
-                    self._stop_event.wait(),
-                    timeout=self._poll_interval,
-                )
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    await self.process_once()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("Outbox worker iteration failed")
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(
+                        self._stop_event.wait(),
+                        timeout=self._poll_interval,
+                    )
+        finally:
+            if self._owns_notifier:
+                await self._notifier.close()
+
         logger.info("Outbox worker stopped")
 
     def stop(self) -> None:
@@ -53,55 +99,146 @@ class OutboxWorker:
         self._stop_event.set()
 
     async def process_once(self) -> int:
-        """Обработать одну пачку pending-записей.
+        """Обработать одну пачку записей, готовых к отправке.
+
+        Сначала выбираются id записей (короткая транзакция с блокировкой),
+        затем каждое сообщение доставляется в отдельной транзакции —
+        чтобы ошибка одной записи не откатывала результаты других.
 
         Returns:
-            Количество обработанных записей
+            Количество записей, по которым была выполнена попытка доставки
         """
-        processed = 0
+        message_ids = await self._claim_batch()
+        for message_id in message_ids:
+            await self._process_message(message_id)
+        return len(message_ids)
+
+    async def _claim_batch(self) -> list[str]:
+        """Выбрать пачку pending-записей и зафиксировать их id.
+
+        Транзакция завершается сразу после выборки: блокировки строк
+        освобождаются, а на время HTTP-вызовов захватывается отдельная
+        блокировка на каждую обрабатываемую запись (в _process_message).
+
+        Returns:
+            Список идентификаторов записей для обработки
+        """
         async with async_session() as session:
             repo = OutboxRepository(session)
             messages = await repo.fetch_pending(limit=self._batch_size)
-            if not messages:
-                return 0
+            ids = [message.id for message in messages]
+            # Откат вместо коммита: выборка с FOR UPDATE ничего не меняет,
+            # а блокировки освобождаются немедленно по окончании сессии.
+            await session.rollback()
+        return ids
 
-            for message in messages:
-                try:
-                    await self._handle_message(message.payload, message.id)
-                except Exception as exc:
-                    logger.error(
-                        "Failed to deliver outbox message %s (attempt %d): %s",
-                        message.id,
-                        message.attempts + 1,
-                        exc,
-                    )
-                    await repo.increment_attempts(message.id)
-                    if message.attempts + 1 >= self._max_attempts:
-                        logger.error(
-                            "Outbox message %s exceeded max attempts (%d), "
-                            "marking as failed",
-                            message.id,
-                            self._max_attempts,
-                        )
-                        await repo.mark_failed(message.id)
-                    else:
-                        # Откатываем блокировку, запись останется pending
-                        continue
-                else:
-                    await repo.mark_sent(message.id)
-                processed += 1
+    async def _process_message(self, message_id: str) -> None:
+        """Доставить одну запись outbox в собственной транзакции."""
+        async with async_session() as session:
+            repo = OutboxRepository(session)
+            # Повторно фиксируем запись с блокировкой: если её успел забрать
+            # другой экземпляр воркера (SKIP LOCKED) — пропускаем обработку.
+            message = await repo.get_for_update(message_id)
+            if message is None or message.status != OutboxStatus.PENDING:
+                await session.rollback()
+                return
 
+            outcome, error = await self._deliver(message.payload, message.id)
+
+            if outcome in (
+                NotificationOutcome.SENT,
+                NotificationOutcome.IDEMPOTENT_DUPLICATE,
+            ):
+                await repo.mark_sent(message.id)
+                await session.commit()
+                logger.info(
+                    "Outbox message %s delivered (outcome=%s)",
+                    message.id,
+                    outcome,
+                )
+                return
+
+            attempts_before = message.attempts
+            exhausted = await repo.register_retry(
+                message.id,
+                error or "unknown error",
+                max_attempts=self._max_attempts,
+                backoff_base_seconds=self._backoff_base,
+                backoff_max_seconds=self._backoff_max,
+            )
             await session.commit()
-        return processed
+            if exhausted:
+                logger.error(
+                    "Outbox message %s exceeded max attempts (%d), marked as "
+                    "failed. Last error: %s",
+                    message.id,
+                    self._max_attempts,
+                    error,
+                )
+            else:
+                logger.warning(
+                    "Outbox message %s delivery failed (attempt %d/%d, "
+                    "outcome=%s), will retry. Error: %s",
+                    message.id,
+                    attempts_before + 1,
+                    self._max_attempts,
+                    outcome,
+                    error,
+                )
 
-    async def _handle_message(self, payload: dict, message_id: str) -> None:
-        """Доставка одной записи outbox.
+    async def _deliver(
+        self,
+        payload: dict[str, Any],
+        message_id: str,
+    ) -> tuple[NotificationOutcome, str | None]:
+        """Выполнить доставку одного события во внешний сервис.
 
-        Заглушка-логгер; позже реализовать вызов Capashino API.
+        Для события ticket_purchased отправляет уведомление в Capashino.
+        idempotency_key стабилен и привязан к id записи outbox, поэтому
+        повторная обработка той же записи не создаёт дубликат уведомления.
 
         Args:
-            payload: Данные события
+            payload: Данные события из записи outbox
             message_id: Идентификатор записи outbox
+
+        Returns:
+            Кортеж (результат попытки, текст ошибки или None)
         """
         event_type = payload.get("event_type", "unknown")
-        logger.info("Delivering outbox message %s (type=%s)", message_id, event_type)
+        if event_type == OutboxEventType.TICKET_PURCHASED:
+            return await self._send_ticket_notification(payload, message_id)
+
+        # Неизвестный тип события — повторная обработка не поможет.
+        logger.error(
+            "Unknown outbox event type %r in message %s",
+            event_type,
+            message_id,
+        )
+        return NotificationOutcome.PERMANENT, f"unsupported event_type: {event_type}"
+
+    async def _send_ticket_notification(
+        self,
+        payload: dict[str, Any],
+        message_id: str,
+    ) -> tuple[NotificationOutcome, str | None]:
+        """Отправить уведомление о покупке билета в Capashino."""
+        ticket_id = payload.get("ticket_id")
+        message_text = payload.get("message")
+        if not ticket_id or not message_text or not str(message_text).strip():
+            # Некорректный payload — данные не изменятся при повторе.
+            return (
+                NotificationOutcome.PERMANENT,
+                "payload missing ticket_id or non-empty message",
+            )
+
+        try:
+            outcome = await self._notifier.send_notification(
+                message=str(message_text),
+                reference_id=str(ticket_id),
+                idempotency_key=f"outbox:{message_id}",
+            )
+        except NotificationDeliveryError as exc:
+            return NotificationOutcome.RETRYABLE, str(exc)
+        except NotificationPermanentError as exc:
+            return NotificationOutcome.PERMANENT, str(exc)
+        return outcome, None
