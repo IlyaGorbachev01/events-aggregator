@@ -11,6 +11,11 @@ class TicketRepository:
         """Инициализация репозитория для работы с билетами."""
         self._session = session
 
+    @property
+    def session(self) -> AsyncSession:
+        """БД-сессия репозитория (для управления транзакцией в usecase)."""
+        return self._session
+
     async def get_by_ticket_id(self, ticket_id: str) -> Ticket | None:
         """Получение билета по ticket_id от провайдера."""
         stmt = select(Ticket).where(Ticket.ticket_id == ticket_id)

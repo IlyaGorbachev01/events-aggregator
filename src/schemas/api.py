@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from src.core.enums import EventStatus
 
@@ -59,13 +59,31 @@ class SeatsResponse(BaseModel):
 
 
 class CreateTicketRequest(BaseModel):
-    """Схема запроса на создание билета."""
+    """Схема запроса на создание билета.
+
+    Поле `idempotency_key` — необязательный ключ идемпотентности
+    (строка 8–128 символов). Передаётся клиентом в теле запроса; при
+    повторной отправке того же запроса с тем же ключом возвращается тот
+    же билет без повторной регистрации у провайдера. Тот же ключ с
+    другими данными -> HTTP 409 Conflict.
+    """
 
     event_id: str
     first_name: str
     last_name: str
     email: EmailStr
     seat: str
+    idempotency_key: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=128,
+        pattern=r"^[\w\-:.]+$",
+        description=(
+            "Ключ идемпотентности операции. Повтор запроса с тем же ключом "
+            "и теми же данными возвращает тот же ticket_id (201); "
+            "тот же ключ, но другие данные — 409 Conflict."
+        ),
+    )
 
 
 class CreateTicketResponse(BaseModel):

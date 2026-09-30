@@ -1,12 +1,17 @@
+import hashlib
+import json
 import logging
 from datetime import datetime
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 
+from src.core.config import settings
 from src.core.enums import EventStatus, OutboxEventType
 from src.core.exceptions import (
     EventNotFoundError,
     EventNotPublishedError,
+    IdempotencyConflictError,
     ProviderAuthError,
     ProviderUnavailableError,
     RegistrationDeadlineError,
@@ -14,6 +19,7 @@ from src.core.exceptions import (
     TicketNotFoundError,
 )
 from src.repositories.event import EventRepository
+from src.repositories.idempotency import IdempotencyRepository
 from src.repositories.outbox import OutboxRepository
 from src.repositories.ticket import TicketRepository
 from src.schemas.events_provider import RegisterRequest, UnregisterRequest
@@ -22,6 +28,32 @@ from src.services.seats_cache import seats_cache
 from src.usecases.seats import GetSeatsUsecase
 
 logger = logging.getLogger(__name__)
+
+
+def compute_request_hash(
+    event_id: str,
+    first_name: str,
+    last_name: str,
+    email: str,
+    seat: str,
+) -> str:
+    """Канонический SHA-256 хеш данных запроса на создание билета.
+
+    Используется для детекта конфликта: тот же ключ идемпотентности,
+    но другие данные запроса. Email нормализуется к lower-case.
+    """
+    canonical = json.dumps(
+        {
+            "event_id": event_id,
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": email.lower(),
+            "seat": seat,
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class CreateTicketUsecase:
@@ -33,6 +65,7 @@ class CreateTicketUsecase:
         events: EventRepository,
         tickets: TicketRepository,
         outbox: OutboxRepository | None = None,
+        idempotency: IdempotencyRepository | None = None,
     ) -> None:
         """Инициализация UseCase создания билета.
 
@@ -41,11 +74,13 @@ class CreateTicketUsecase:
             events: Репозиторий событий
             tickets: Репозиторий билетов
             outbox: Репозиторий outbox (опционально, для записи событий)
+            idempotency: Репозиторий ключей идемпотентности (опционально)
         """
         self._client = client
         self._events = events
         self._tickets = tickets
         self._outbox = outbox
+        self._idempotency = idempotency
 
     async def execute(
         self,
@@ -54,12 +89,44 @@ class CreateTicketUsecase:
         last_name: str,
         email: str,
         seat: str,
+        idempotency_key: str | None = None,
     ) -> str:
-        """Создание билета с полной валидацией.
+        """Создание билета с полной валидацией и поддержкой идемпотентности.
+
+        Если передан ``idempotency_key``:
+        - повтор запроса с тем же ключом и теми же данными возвращает
+          ранее созданный ticket_id без повторной регистрации у провайдера;
+        - тот же ключ, но другие данные -> IdempotencyConflictError (409);
+        - при ошибке регистрации у провайдера результат по ключу НЕ
+          сохраняется, повторный запрос с тем же ключом обработается как новый.
 
         Returns:
             ticket_id от провайдера
         """
+        request_hash = compute_request_hash(
+            event_id=event_id,
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            seat=seat,
+        )
+
+        # Проверка уже сохранённого результата по ключу идемпотентности
+        if idempotency_key is not None and self._idempotency is not None:
+            existing = await self._idempotency.get(idempotency_key)
+            if existing is not None:
+                if existing.request_hash != request_hash:
+                    raise IdempotencyConflictError(
+                        f"Idempotency key {idempotency_key!r} was already used "
+                        "with different request data"
+                    )
+                logger.info(
+                    "Returning cached result for idempotency key %s (ticket %s)",
+                    idempotency_key,
+                    existing.ticket_id,
+                )
+                return existing.ticket_id
+
         logger.info("Creating ticket for event %s, seat %s", event_id, seat)
 
         # Проверяем событие
@@ -109,7 +176,7 @@ class CreateTicketUsecase:
 
         ticket_id = response.ticket_id
 
-        # 6. Сохраняем в своей БД
+        # Сохраняем в своей БД
         await self._tickets.create(
             event_id=event_id,
             ticket_id=ticket_id,
@@ -140,6 +207,43 @@ class CreateTicketUsecase:
                 event_type=OutboxEventType.TICKET_PURCHASED,
                 payload=payload,
             )
+
+        # Сохраняем результат по ключу идемпотентности — в той же
+        # транзакции, что и билет и outbox. Если параллельный запрос с этим
+        # ключом уже зафиксировал результат (IntegrityError), откатываем свою
+        # транзакцию (дубликат билета не остаётся) и возвращаем чужой
+        # сохранённый ticket_id — проигравший запрос становится повтором.
+        if idempotency_key is not None and self._idempotency is not None:
+            try:
+                await self._idempotency.save(
+                    key=idempotency_key,
+                    request_hash=request_hash,
+                    ticket_id=ticket_id,
+                    response={"ticket_id": ticket_id},
+                    ttl_hours=settings.idempotency_key_ttl_hours,
+                )
+            except IntegrityError as exc:
+                # Гонка: параллельный запрос с этим ключом уже зафиксировал
+                # результат. Откатываем всю транзакцию (дубликат билета не
+                # остаётся) и возвращаем сохранённый ticket_id — проигравший
+                # запрос становится повтором.
+                await self._tickets.session.rollback()
+                winner = await self._idempotency.get(idempotency_key)
+                if winner is None:
+                    raise IdempotencyConflictError(
+                        f"Idempotency key {idempotency_key!r} conflict"
+                    ) from exc
+                if winner.request_hash != request_hash:
+                    raise IdempotencyConflictError(
+                        f"Idempotency key {idempotency_key!r} was already used "
+                        "with different request data"
+                    ) from exc
+                logger.info(
+                    "Race detected for idempotency key %s, returning winner ticket %s",
+                    idempotency_key,
+                    winner.ticket_id,
+                )
+                return winner.ticket_id
 
         # Инвалидируем кэш мест после регистрации
         seats_cache.invalidate(event_id)

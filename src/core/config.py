@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     capashino_api_key: str = ""
     capashino_timeout_seconds: float = 10.0
 
+    # Идемпотентность POST /api/tickets
+    idempotency_key_ttl_hours: int = 7
+
     @model_validator(mode="after")
     def build_database_url(self) -> "Settings":
         """Автоматически формирует корректный DATABASE_URL для asyncpg."""

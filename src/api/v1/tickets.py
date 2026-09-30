@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from src.api.deps import ClientDep, SessionDep
 from src.repositories.event import EventRepository
+from src.repositories.idempotency import IdempotencyRepository
 from src.repositories.outbox import OutboxRepository
 from src.repositories.ticket import TicketRepository
 from src.schemas.api import (
@@ -24,11 +25,20 @@ async def create_ticket(
     session: SessionDep,
     client: ClientDep,
 ) -> CreateTicketResponse:
-    """Создание билета (регистрация на мероприятие)."""
+    """Создание билета (регистрация на мероприятие).
+
+    Поддерживает ключ идемпотентности в теле запроса (поле
+    `idempotency_key`): повтор того же запроса с тем же ключом
+    возвращает 201 с тем же ticket_id без повторной регистрации у
+    провайдера; тот же ключ с другими данными -> 409 Conflict.
+    """
     event_repo = EventRepository(session)
     ticket_repo = TicketRepository(session)
     outbox_repo = OutboxRepository(session)
-    usecase = CreateTicketUsecase(client, event_repo, ticket_repo, outbox_repo)
+    idempotency_repo = IdempotencyRepository(session)
+    usecase = CreateTicketUsecase(
+        client, event_repo, ticket_repo, outbox_repo, idempotency_repo
+    )
 
     ticket_id = await usecase.execute(
         event_id=data.event_id,
@@ -36,6 +46,7 @@ async def create_ticket(
         last_name=data.last_name,
         email=data.email,
         seat=data.seat,
+        idempotency_key=data.idempotency_key,
     )
     await session.commit()
     return CreateTicketResponse(ticket_id=ticket_id)

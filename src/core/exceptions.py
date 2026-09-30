@@ -28,3 +28,7 @@ class ProviderUnavailableError(Exception):
 
 class ProviderAuthError(Exception):
     """Ошибка аутентификации с провайдером (401)."""
+
+
+class IdempotencyConflictError(Exception):
+    """Конфликт идемпотентности: тот же ключ, но другие данные запроса."""
