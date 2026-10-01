@@ -50,6 +50,7 @@ class OutboxWorker:
         self._max_attempts = settings.outbox_max_attempts
         self._backoff_base = settings.outbox_backoff_base_seconds
         self._backoff_max = settings.outbox_backoff_max_seconds
+        self._backoff_jitter = settings.outbox_backoff_jitter_ratio
         self._stop_event = asyncio.Event()
         if notifier is not None:
             self._notifier = notifier
@@ -75,6 +76,11 @@ class OutboxWorker:
             self._backoff_base,
             self._backoff_max,
         )
+        if self._owns_notifier and not settings.capashino_api_key:
+            logger.warning(
+                "CAPASHINO_API_KEY is not configured: notification delivery "
+                "will fail with HTTP 401 until the key is provided"
+            )
         try:
             while not self._stop_event.is_set():
                 try:
@@ -109,9 +115,11 @@ class OutboxWorker:
             Количество записей, по которым была выполнена попытка доставки
         """
         message_ids = await self._claim_batch()
+        processed = 0
         for message_id in message_ids:
-            await self._process_message(message_id)
-        return len(message_ids)
+            if await self._process_message(message_id):
+                processed += 1
+        return processed
 
     async def _claim_batch(self) -> list[str]:
         """Выбрать пачку pending-записей и зафиксировать их id.
@@ -132,8 +140,14 @@ class OutboxWorker:
             await session.rollback()
         return ids
 
-    async def _process_message(self, message_id: str) -> None:
-        """Доставить одну запись outbox в собственной транзакции."""
+    async def _process_message(self, message_id: str) -> bool:
+        """Доставить одну запись outbox в собственной транзакции.
+
+        Returns:
+            True, если по записи была выполнена попытка доставки;
+            False, если запись пропущена (уже обработана или заблокирована
+            другим экземпляром воркера)
+        """
         async with async_session() as session:
             repo = OutboxRepository(session)
             # Повторно фиксируем запись с блокировкой: если её успел забрать
@@ -141,7 +155,7 @@ class OutboxWorker:
             message = await repo.get_for_update(message_id)
             if message is None or message.status != OutboxStatus.PENDING:
                 await session.rollback()
-                return
+                return False
 
             outcome, error = await self._deliver(message.payload, message.id)
 
@@ -156,7 +170,7 @@ class OutboxWorker:
                     message.id,
                     outcome,
                 )
-                return
+                return True
 
             attempts_before = message.attempts
             exhausted = await repo.register_retry(
@@ -165,6 +179,7 @@ class OutboxWorker:
                 max_attempts=self._max_attempts,
                 backoff_base_seconds=self._backoff_base,
                 backoff_max_seconds=self._backoff_max,
+                backoff_jitter_ratio=self._backoff_jitter,
             )
             await session.commit()
             if exhausted:
@@ -185,6 +200,7 @@ class OutboxWorker:
                     outcome,
                     error,
                 )
+            return True
 
     async def _deliver(
         self,

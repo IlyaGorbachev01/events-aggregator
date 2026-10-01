@@ -4,7 +4,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from src.models.idempotency import IdempotencyKey
 
@@ -81,9 +81,11 @@ class IdempotencyRepository:
         Returns:
             Количество удалённых записей
         """
-        stmt = delete(IdempotencyKey).where(
-            IdempotencyKey.expires_at < datetime.now(UTC)
+        stmt = (
+            delete(IdempotencyKey)
+            .where(IdempotencyKey.expires_at < datetime.now(UTC))
+            .returning(func.count())
         )
         result = await self._session.execute(stmt)
         await self._session.flush()
-        return result.rowcount or 0
+        return result.scalar_one()

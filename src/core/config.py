@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     outbox_max_attempts: int = 5
     outbox_backoff_base_seconds: float = 2.0
     outbox_backoff_max_seconds: float = 300.0
+    outbox_backoff_jitter_ratio: float = 0.2
 
     # Notification service (Capashino)
     capashino_base_url: str = (

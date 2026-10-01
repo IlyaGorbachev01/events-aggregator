@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import random
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -136,6 +137,7 @@ class OutboxRepository:
         max_attempts: int,
         backoff_base_seconds: float,
         backoff_max_seconds: float,
+        backoff_jitter_ratio: float = 0.0,
     ) -> bool:
         """Зафиксировать неудачную попытку доставки.
 
@@ -152,6 +154,8 @@ class OutboxRepository:
             max_attempts: Максимальное число попыток
             backoff_base_seconds: Основание экспоненциального backoff
             backoff_max_seconds: Верхняя граница интервала повторной попытки
+            backoff_jitter_ratio: Доля случайного «размытия» задержки
+                (0..1); по умолчанию 0 — без размытия
 
         Returns:
             True, если запись переведена в failed (лимит попыток исчерпан)
@@ -174,6 +178,11 @@ class OutboxRepository:
             backoff_base_seconds * (2 ** (new_attempts - 1)),
             backoff_max_seconds,
         )
+        if backoff_jitter_ratio > 0:
+            # Равномерное размытие задержки в пределах +/-ratio*delay:
+            # предотвращает синхронные волны повторов после простоя сервиса.
+            jitter = random.uniform(-backoff_jitter_ratio, backoff_jitter_ratio)
+            delay_seconds = max(delay_seconds * (1 + jitter), 0.0)
         # Python-bool вместо SQLAlchemy-выражения: возврат строго bool
         is_exhausted: bool = new_attempts >= max_attempts
         stmt = (
