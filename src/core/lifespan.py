@@ -3,6 +3,7 @@ import contextlib
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 import sentry_sdk
 from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore
@@ -59,7 +60,10 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     # Создаем планировщик
     scheduler = AsyncIOScheduler()
 
-    # Добавляем задачу синхронизации
+    # Добавляем задачу синхронизации.
+    # Первая синхронизация выполняется сразу после запуска планировщика
+    # (next_run_time=now), периодические — по интервалу из конфига.
+    # max_instances=1/coalesce=True — задачи не накладываются друг на друга.
     scheduler.add_job(
         scheduled_sync,
         "interval",
@@ -67,6 +71,9 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         id="sync_events",
         name="Sync events from Events Provider API",
         replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        next_run_time=datetime.now(UTC),
     )
 
     # Периодическая очистка протухших ключей идемпотентности (TTL)
@@ -77,23 +84,19 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         id="cleanup_idempotency_keys",
         name="Remove expired idempotency keys",
         replace_existing=True,
+        coalesce=True,
+        max_instances=1,
     )
 
     # Запускаем планировщик
     scheduler.start()
     logger.info(
-        "Scheduler started. Sync interval: %d minutes",
+        "Scheduler started. Sync interval: %d minutes. Initial sync scheduled.",
         settings.sync_interval_minutes,
     )
 
-    # Выполняем первичную синхронизацию при старте
-    try:
-        logger.info("Running initial sync on startup")
-        await scheduled_sync()
-    except Exception as e:
-        logger.exception("Initial sync failed: %s", e)
-
-    # Запускаем воркер outbox отдельной корутиной в том же процессе
+    # Запускаем воркер outbox отдельной корутиной в том же процессе.
+    # Воркер стартует сразу и не ждёт завершения первичной синхронизации.
     outbox_worker = OutboxWorker()
     worker_task = asyncio.create_task(outbox_worker.run())
 

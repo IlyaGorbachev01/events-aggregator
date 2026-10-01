@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +10,11 @@ from src.services.events_paginator import EventsPaginator
 from src.services.events_provider_client import EventsProviderClient
 
 logger = logging.getLogger(__name__)
+
+# Дата-«заглушка» для метаданных при первой синхронизации: заведомо в прошлом,
+# чтобы следующая синхронизация снова захватила все события (changed_at=X
+# означает «изменённые начиная с X», включая сам день X).
+_EPOCH = datetime(2020, 1, 1, tzinfo=UTC)
 
 
 class SyncService:
@@ -28,18 +33,35 @@ class SyncService:
         self._sync_repo = SyncMetadataRepository(session)
 
     async def sync(self) -> None:
-        """Выполнение синхронизации событий."""
+        """Выполнение синхронизации событий.
+
+        metadata создаётся сразу (со статусом running), чтобы запись о
+        последней попытке синхронизации существовала даже при первом запуске
+        и при ошибках. По завершении статус обновляется на success/failed.
+        """
         logger.info("Starting events sync")
 
+        # Получаем last_changed_at из метаданных
+        metadata = await self._sync_repo.get()
+        changed_at = "2020-01-01"
+        if metadata:
+            changed_at = metadata.last_changed_at.strftime("%Y-%m-%d")
+
+        # Фиксируем начало синхронизации (гарантирует наличие записи metadata)
         try:
-            # Получаем last_changed_at из метаданных
-            metadata = await self._sync_repo.get()
-            changed_at = "2020-01-01"
-            if metadata:
-                changed_at = metadata.last_changed_at.strftime("%Y-%m-%d")
+            metadata = await self._sync_repo.upsert(
+                last_sync_time=datetime.now(UTC),
+                last_changed_at=metadata.last_changed_at if metadata else _EPOCH,
+                sync_status="running",
+            )
+            await self._session.commit()
+        except Exception:
+            await self._session.rollback()
+            logger.exception("Failed to save sync metadata (start)")
 
-            logger.info("Syncing events changed after %s", changed_at)
+        logger.info("Syncing events changed after %s", changed_at)
 
+        try:
             # Создаем пагинатор
             paginator = EventsPaginator(self._client, changed_at)
 
@@ -63,14 +85,17 @@ class SyncService:
             # Коммитим все изменения
             await self._session.commit()
 
-            # Обновляем метаданные синхронизации
-            if max_changed_at:
-                await self._sync_repo.upsert(
-                    last_sync_time=datetime.utcnow(),
-                    last_changed_at=max_changed_at,
-                    sync_status="success",
-                )
-                await self._session.commit()
+            # Обновляем метаданные синхронизации.
+            # При пустом результате last_changed_at не двигаем вперёд —
+            # иначе одна пустая/неудачная итерация навсегда «съест» события.
+            await self._sync_repo.upsert(
+                last_sync_time=datetime.now(UTC),
+                last_changed_at=max_changed_at
+                if max_changed_at
+                else (metadata.last_changed_at if metadata else _EPOCH),
+                sync_status="success",
+            )
+            await self._session.commit()
 
             logger.info(
                 "Sync completed successfully. Processed %d events",
@@ -84,10 +109,8 @@ class SyncService:
             # Сохраняем статус ошибки
             try:
                 await self._sync_repo.upsert(
-                    last_sync_time=datetime.utcnow(),
-                    last_changed_at=metadata.last_changed_at
-                    if metadata
-                    else datetime(2026, 1, 1),
+                    last_sync_time=datetime.now(UTC),
+                    last_changed_at=metadata.last_changed_at if metadata else _EPOCH,
                     sync_status="failed",
                 )
                 await self._session.commit()
