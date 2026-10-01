@@ -2,10 +2,16 @@ from enum import StrEnum
 
 
 class EventStatus(StrEnum):
-    """Статусы событий."""
+    """Статусы событий.
+
+    Полный набор статусов, который возвращает Events Provider:
+    new, published, registration_closed, finished.
+    """
 
     NEW = "new"
     PUBLISHED = "published"
+    REGISTRATION_CLOSED = "registration_closed"
+    FINISHED = "finished"
 
 
 class OutboxStatus(StrEnum):
