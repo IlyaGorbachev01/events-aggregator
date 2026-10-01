@@ -49,8 +49,6 @@ async def requeue_failed_message(message_id: str, session: SessionDep) -> None:
     if not requeued:
         raise HTTPException(
             status_code=404,
-            detail=(
-                f"Outbox message {message_id} not found or not in 'failed' status"
-            ),
+            detail=(f"Outbox message {message_id} not found or not in 'failed' status"),
         )
     logger.info("Outbox message %s manually re-queued from failed", message_id)

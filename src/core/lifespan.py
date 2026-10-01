@@ -4,6 +4,7 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import sentry_sdk
 from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore
 from fastapi import FastAPI
 
@@ -107,3 +108,9 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     with contextlib.suppress(asyncio.CancelledError):
         await worker_task
     logger.info("Outbox worker task cancelled")
+
+    # Flush Sentry (GlitchTip) — гарантируем отправку накопленных событий
+    try:
+        sentry_sdk.flush(timeout=5)
+    except Exception:
+        logger.exception("Sentry flush on shutdown failed")

@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     # Идемпотентность POST /api/tickets
     idempotency_key_ttl_hours: int = 7
 
+    # GlitchTip (Sentry-compatible error tracking)
+    sentry_dsn: str | None = None
+    sentry_environment: str | None = None
+    sentry_traces_sample_rate: float = 0.0
+
     @model_validator(mode="after")
     def build_database_url(self) -> "Settings":
         """Автоматически формирует корректный DATABASE_URL для asyncpg."""

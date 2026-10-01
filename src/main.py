@@ -17,12 +17,17 @@ from src.core.exceptions import (
 )
 from src.core.lifespan import lifespan
 from src.core.logging import setup_logging
+from src.core.sentry import init_sentry
 
 setup_logging()
 
 
 def create_app() -> FastAPI:
     """Создание и настройка экземпляра FastAPI приложения."""
+    # Инициализация Sentry SDK (GlitchTip) до создания приложения,
+    # чтобы интеграция FastAPI зарегистрировала middleware корректно.
+    init_sentry()
+
     app = FastAPI(
         title=settings.app_name,
         debug=settings.debug,
