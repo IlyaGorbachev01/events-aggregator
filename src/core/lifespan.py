@@ -9,6 +9,7 @@ from fastapi import FastAPI
 
 from src.core.config import settings
 from src.core.database import async_session
+from src.repositories.idempotency import IdempotencyRepository
 from src.services.events_provider_client import EventsProviderClient
 from src.services.outbox_worker import OutboxWorker
 from src.services.sync_service import SyncService
@@ -33,6 +34,22 @@ async def scheduled_sync() -> None:
             await client.close()
 
 
+async def scheduled_cleanup() -> None:
+    """Задача для периодической очистки протухших ключей идемпотентности."""
+    logger.info("Running idempotency keys cleanup task")
+
+    async with async_session() as session:
+        repo = IdempotencyRepository(session)
+        try:
+            deleted = await repo.delete_expired()
+            await session.commit()
+            if deleted:
+                logger.info("Removed %d expired idempotency keys", deleted)
+        except Exception:
+            await session.rollback()
+            logger.exception("Idempotency keys cleanup failed")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """Lifespan контекст для запуска фоновых задач."""
@@ -48,6 +65,16 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         minutes=settings.sync_interval_minutes,
         id="sync_events",
         name="Sync events from Events Provider API",
+        replace_existing=True,
+    )
+
+    # Периодическая очистка протухших ключей идемпотентности (TTL)
+    scheduler.add_job(
+        scheduled_cleanup,
+        "interval",
+        hours=settings.idempotency_key_ttl_hours,
+        id="cleanup_idempotency_keys",
+        name="Remove expired idempotency keys",
         replace_existing=True,
     )
 

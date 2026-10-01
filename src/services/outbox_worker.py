@@ -6,9 +6,9 @@
 
 Гарантии доставки:
 - Каждое сообщение обрабатывается в собственной короткой транзакции:
-  выборка (FOR UPDATE SKIP LOCKED) -> отправка во внешний сервис ->
-  коммит нового статуса. Ошибка на одном сообщении не откатывает
-  статусы уже успешно доставленных сообщений пачки.
+  выборка id пачки -> повторная блокировка записи (FOR UPDATE SKIP LOCKED)
+  -> отправка во внешний сервис -> коммит нового статуса. Ошибка на одном
+  сообщении не откатывает статусы уже успешно доставленных сообщений пачки.
 - Блокировка строки удерживается только на время HTTP-вызова этого
   сообщения; соседние записи пачки блокировок не держат.
 - Успешный ответ Capashino (201 или 409 по idempotency_key) — единственный
@@ -22,8 +22,10 @@ import contextlib
 import logging
 from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from src.core.config import settings
-from src.core.database import async_session
+from src.core.database import async_session as async_session_factory
 from src.core.enums import NotificationOutcome, OutboxEventType, OutboxStatus
 from src.repositories.outbox import OutboxRepository
 from src.services.notification_client import (
@@ -38,12 +40,18 @@ logger = logging.getLogger(__name__)
 class OutboxWorker:
     """Фоновый воркер доставки событий из outbox."""
 
-    def __init__(self, notifier: NotificationClient | None = None) -> None:
+    def __init__(
+        self,
+        notifier: NotificationClient | None = None,
+        session_factory: async_sessionmaker[AsyncSession] | None = None,
+    ) -> None:
         """Инициализация воркера с параметрами из конфигурации.
 
         Args:
             notifier: Клиент уведомлений (для тестов; по умолчанию
                       создаётся из настроек Capashino)
+            session_factory: Фабрика сессий (для тестов; по умолчанию
+                             используется глобальная async_session)
         """
         self._poll_interval = settings.outbox_poll_interval_seconds
         self._batch_size = settings.outbox_batch_size
@@ -52,6 +60,7 @@ class OutboxWorker:
         self._backoff_max = settings.outbox_backoff_max_seconds
         self._backoff_jitter = settings.outbox_backoff_jitter_ratio
         self._stop_event = asyncio.Event()
+        self._session_factory = session_factory or async_session_factory
         if notifier is not None:
             self._notifier = notifier
             self._owns_notifier = False
@@ -84,7 +93,17 @@ class OutboxWorker:
         try:
             while not self._stop_event.is_set():
                 try:
-                    await self.process_once()
+                    processed = await self.process_once()
+                    if processed:
+                        pending_total = await self.count_ready()
+                        # Heartbeat: видно, что воркер живёт и сколько
+                        # событий ещё ожидает доставки (между ошибками в
+                        # логах иначе тишина).
+                        logger.info(
+                            "Outbox iteration done: attempted=%d, pending_left=%d",
+                            processed,
+                            pending_total,
+                        )
                 except asyncio.CancelledError:
                     raise
                 except Exception:
@@ -121,6 +140,60 @@ class OutboxWorker:
                 processed += 1
         return processed
 
+    async def count_ready(self) -> int:
+        """Подсчитать записи, готовые к отправке сейчас (для heartbeat/метриок).
+
+        Возвращает полный срез очереди: суммирует pending-записи независимо
+        от того, наступил ли срок их следующей попытки (backoff) —
+        т.е. все ещё не доставленные события.
+
+        Returns:
+            Количество ожидающих доставки записей (pending)
+        """
+        async with self._session_factory() as session:
+            repo = OutboxRepository(session)
+            counts = await repo.count_by_status()
+            ready_now = await repo.count_ready()
+        total_pending = counts.get(OutboxStatus.PENDING.value, 0)
+        deferred = max(total_pending - ready_now, 0)
+        # Полный срез очереди в debug-логе: всего pending / из них готовы
+        # (срок наступил) / в backoff / доставлено / исчерпано попытки
+        logger.debug(
+            "Outbox backlog: pending=%d (ready_now=%d, in_backoff=%d), "
+            "sent=%d, failed=%d",
+            total_pending,
+            ready_now,
+            deferred,
+            counts.get(OutboxStatus.SENT.value, 0),
+            counts.get(OutboxStatus.FAILED.value, 0),
+        )
+        return total_pending
+
+    async def requeue_failed(self, message_id: str) -> bool:
+        """Вернуть failed-запись в очередь (ручной re-drive).
+
+        Применяется после инцидента с Capashino: события, исчерпавшие лимит
+        попыток, иначе остались бы недоставленными навсегда.
+
+        Args:
+            message_id: Идентификатор записи outbox
+
+        Returns:
+            True, если запись была в failed и переведена в pending
+        """
+        async with self._session_factory() as session:
+            repo = OutboxRepository(session)
+            requeued = await repo.requeue_failed(message_id)
+            await session.commit()
+        if requeued:
+            logger.info("Outbox message %s re-queued from failed", message_id)
+        else:
+            logger.warning(
+                "Outbox message %s not found in failed status, nothing to requeue",
+                message_id,
+            )
+        return requeued
+
     async def _claim_batch(self) -> list[str]:
         """Выбрать пачку pending-записей и зафиксировать их id.
 
@@ -131,7 +204,7 @@ class OutboxWorker:
         Returns:
             Список идентификаторов записей для обработки
         """
-        async with async_session() as session:
+        async with self._session_factory() as session:
             repo = OutboxRepository(session)
             messages = await repo.fetch_pending(limit=self._batch_size)
             ids = [message.id for message in messages]
@@ -148,7 +221,7 @@ class OutboxWorker:
             False, если запись пропущена (уже обработана или заблокирована
             другим экземпляром воркера)
         """
-        async with async_session() as session:
+        async with self._session_factory() as session:
             repo = OutboxRepository(session)
             # Повторно фиксируем запись с блокировкой: если её успел забрать
             # другой экземпляр воркера (SKIP LOCKED) — пропускаем обработку.
@@ -174,7 +247,7 @@ class OutboxWorker:
 
             attempts_before = message.attempts
             exhausted = await repo.register_retry(
-                message.id,
+                message,
                 error or "unknown error",
                 max_attempts=self._max_attempts,
                 backoff_base_seconds=self._backoff_base,
@@ -185,10 +258,12 @@ class OutboxWorker:
             if exhausted:
                 logger.error(
                     "Outbox message %s exceeded max attempts (%d), marked as "
-                    "failed. Last error: %s",
+                    "failed. Last error: %s. Requeue via "
+                    "POST /api/outbox/%s/requeue after fixing the cause.",
                     message.id,
                     self._max_attempts,
                     error,
+                    message.id,
                 )
             else:
                 logger.warning(

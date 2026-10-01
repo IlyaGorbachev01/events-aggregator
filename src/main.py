@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from src.api.v1 import events, health, sync, tickets
+from src.api.v1 import events, health, outbox, sync, tickets
 from src.core.config import settings
 from src.core.exceptions import (
     EventNotFoundError,
@@ -99,6 +99,7 @@ def create_app() -> FastAPI:
     app.include_router(events.router)
     app.include_router(tickets.router)
     app.include_router(sync.router)
+    app.include_router(outbox.router)
 
     return app
 

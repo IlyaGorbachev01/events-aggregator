@@ -131,7 +131,7 @@ class OutboxRepository:
 
     async def register_retry(
         self,
-        message_id: str,
+        message: OutboxMessage,
         error: str,
         *,
         max_attempts: int,
@@ -149,7 +149,8 @@ class OutboxRepository:
         как failed и больше не будет выбираться воркером.
 
         Args:
-            message_id: Идентификатор записи outbox
+            message: Зафиксированная воркером запись (FOR UPDATE) —
+                передаётся целиком, чтобы не перечитывать её повторно
             error: Текст последней ошибки
             max_attempts: Максимальное число попыток
             backoff_base_seconds: Основание экспоненциального backoff
@@ -159,19 +160,12 @@ class OutboxRepository:
 
         Returns:
             True, если запись переведена в failed (лимит попыток исчерпан)
-
-        Raises:
-            ValueError: Если передан неизвестный message_id (запись отсутствует)
         """
         now = datetime.now(UTC)
-        # Читаем текущее число попыток через ORM-объект: арифметика над
-        # колонкой (ColumnElement[int]) не типизируется mypy как int
-        # и корректно сериализуется только на уровне SQL. Python-арифметика
+        # Читаем число попыток из уже зафиксированного воркером объекта:
+        # повторный SELECT не нужен, а арифметика над колонкой
+        # (ColumnElement[int]) не типизируется mypy как int. Python-арифметика
         # здесь безопасна, т.к. запись зафиксирована воркером (FOR UPDATE).
-        message = await self.get_by_id(message_id)
-        if message is None:
-            raise ValueError(f"Outbox message {message_id} not found")
-
         new_attempts = message.attempts + 1
         delay_seconds = min(
             # 2 ** (int - 1): оба операнда — чистые int, без ColumnElement
@@ -187,7 +181,7 @@ class OutboxRepository:
         is_exhausted: bool = new_attempts >= max_attempts
         stmt = (
             update(OutboxMessage)
-            .where(OutboxMessage.id == message_id)
+            .where(OutboxMessage.id == message.id)
             .values(
                 attempts=new_attempts,
                 last_error=error[:MAX_ERROR_LENGTH],
@@ -202,6 +196,39 @@ class OutboxRepository:
         await self._session.execute(stmt)
         await self._session.flush()
         return is_exhausted
+
+    async def requeue_failed(self, message_id: str) -> bool:
+        """Вернуть failed-запись в очередь для повторной доставки.
+
+        Служебная операция для ручного re-drive событий, исчерпавших лимит
+        попыток (например, после долгого простоя Capashino). Счётчик
+        попыток обнуляется, backoff — с нуля.
+
+        Args:
+            message_id: Идентификатор записи outbox
+
+        Returns:
+            True, если запись найдена в статусе failed и переведена в pending
+        """
+        now = datetime.now(UTC)
+        stmt = (
+            update(OutboxMessage)
+            .where(
+                OutboxMessage.id == message_id,
+                OutboxMessage.status == OutboxStatus.FAILED.value,
+            )
+            .values(
+                status=OutboxStatus.PENDING.value,
+                attempts=0,
+                next_attempt_at=now,
+                last_error=None,
+            )
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        # len(fetchall()) вместо Result.rowcount — rowcount не типизирован
+        # в SQLAlchemy stubs (mypy: "Result[Any]" has no attribute "rowcount")
+        return bool(result.fetchall())
 
     async def get_by_id(self, message_id: str) -> OutboxMessage | None:
         """Получить запись outbox по идентификатору (без блокировки).
@@ -225,3 +252,25 @@ class OutboxRepository:
         stmt = select(OutboxMessage.status, func.count()).group_by(OutboxMessage.status)
         result = await self._session.execute(stmt)
         return {str(row[0]): int(row[1]) for row in result.all()}
+
+    async def count_ready(self) -> int:
+        """Подсчитать pending-записи, готовые к отправке прямо сейчас.
+
+        Учитывается backoff: считаются только записи с наступившим сроком
+        следующей попытки (next_attempt_at <= now). Используется для
+        наблюдаемости (heartbeat воркера, health-эндпоинт).
+
+        Returns:
+            Количество записей, ожидающих доставки в данный момент
+        """
+        now = datetime.now(UTC)
+        stmt = (
+            select(func.count())
+            .select_from(OutboxMessage)
+            .where(
+                OutboxMessage.status == OutboxStatus.PENDING.value,
+                OutboxMessage.next_attempt_at <= now,
+            )
+        )
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one())
