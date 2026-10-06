@@ -14,6 +14,13 @@ class EventStatus(StrEnum):
     FINISHED = "finished"
 
 
+class TicketStatus(StrEnum):
+    """Статусы билетов."""
+
+    ACTIVE = "active"
+    CANCELLED = "cancelled"
+
+
 class OutboxStatus(StrEnum):
     """Статусы записей outbox."""
 
