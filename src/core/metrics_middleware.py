@@ -32,26 +32,41 @@ class MetricsMiddleware(BaseHTTPMiddleware):
             Ответ приложения (без изменений).
         """
         start_time = time.monotonic()
-        response = await call_next(request)
-        duration = time.monotonic() - start_time
+        try:
+            response = await call_next(request)
+        except Exception:
+            # Необработанное исключение приложения: засчитываем 500 и
+            # пробрасываем дальше (отработает Sentry/ServerErrorMiddleware).
+            self._record(request, 500, time.monotonic() - start_time)
+            raise
 
+        duration = time.monotonic() - start_time
+        self._record(request, response.status_code, duration)
+
+        return response
+
+    @staticmethod
+    def _record(request: Request, status_code: int, duration: float) -> None:
+        """Записать счётчик и длительность запроса в метрики Prometheus.
+
+        Args:
+            request: Входящий HTTP-запрос.
+            status_code: Код ответа (или 500 для необработанного исключения).
+            duration: Длительность обработки в секундах.
+        """
         # Нормализуем путь к шаблону маршрута (см. docstring модуля).
         # Для 404 маршрут не найден — оставляем сырой path, но cardinality
         # таких путей ограничена сканером/ботами и приемлема.
         route = request.scope.get("route")
         endpoint = getattr(route, "path_template", None) or request.url.path
 
-        status = str(response.status_code)
-
         http_requests_total.labels(
             method=request.method,
             endpoint=endpoint,
-            status=status,
+            status=str(status_code),
         ).inc()
 
         http_request_duration_seconds.labels(
             method=request.method,
             endpoint=endpoint,
         ).observe(duration)
-
-        return response

@@ -55,9 +55,10 @@ class EventsProviderClient:
     ) -> httpx.Response:
         """Выполнить запрос к провайдеру с проверкой статуса и сбором метрик.
 
-        Метрики пишутся на каждом физическом HTTP-обращении, включая
-        повторы tenacity — так отражается реальная сетевая нагрузка.
-        Ошибки сети/таймауты фиксируются со status="error".
+        Метрики пишутся на каждом логическом обращении к API (один вызов =
+        одна серия counter/histogram), включая все повторы tenacity внутри —
+        длительность суммарная. Ошибки сети/таймауты фиксируются со
+        status="error".
 
         Args:
             method: HTTP-метод запроса.
@@ -75,9 +76,8 @@ class EventsProviderClient:
         start = time.monotonic()
         status = "error"
         try:
-            response = await self._client.request(method, url, params=params, json=json)
+            response = await self._retrying_request(method, url, params, json)
             status = str(response.status_code)
-            response.raise_for_status()
             return response
         finally:
             duration = time.monotonic() - start
@@ -95,6 +95,18 @@ class EventsProviderClient:
         wait=wait_exponential(multiplier=1, min=1, max=10),
         reraise=True,
     )
+    async def _retrying_request(
+        self,
+        method: str,
+        url: str,
+        params: dict[str, str] | None,
+        json: dict | None,
+    ) -> httpx.Response:
+        """Физический HTTP-запрос с ретраями tenacity по сетевым ошибкам."""
+        response = await self._client.request(method, url, params=params, json=json)
+        response.raise_for_status()
+        return response
+
     async def events(
         self,
         changed_at: str,
@@ -113,12 +125,6 @@ class EventsProviderClient:
         )
         return EventsListResponse.model_validate(response.json())
 
-    @retry(
-        retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        reraise=True,
-    )
     async def seats(self, event_id: str) -> SeatsResponse:
         """Получение списка свободных мест для события."""
         response = await self._request(
@@ -128,12 +134,6 @@ class EventsProviderClient:
         )
         return SeatsResponse.model_validate(response.json())
 
-    @retry(
-        retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        reraise=True,
-    )
     async def register(
         self,
         event_id: str,
@@ -148,12 +148,6 @@ class EventsProviderClient:
         )
         return RegisterResponse.model_validate(response.json())
 
-    @retry(
-        retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        reraise=True,
-    )
     async def unregister(
         self,
         event_id: str,

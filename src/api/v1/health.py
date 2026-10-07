@@ -11,6 +11,13 @@ async def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.get("/", include_in_schema=False)
+async def root() -> dict[str, str]:
+    """Корневой эндпоинт: быстрая проверка, что приложение отвечает."""
+    return {"service": settings.app_name, "status": "ok"}
+
+
+
 @router.get("/api/health/error", tags=["Health"])
 async def health_error_check() -> dict[str, str]:
     """Тестовый эндпоинт для проверки интеграции с GlitchTip.
