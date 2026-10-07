@@ -277,7 +277,8 @@ class CancelTicketUsecase:
         """
         logger.info("Cancelling ticket %s", ticket_id)
 
-        # 1. Получаем билет из своей БД
+        # 1. Получаем активный билет из своей БД
+        # (отменённые билеты репозиторием не возвращаются -> 404)
         ticket = await self._tickets.get_by_ticket_id(ticket_id)
         if not ticket:
             raise TicketNotFoundError(f"Ticket {ticket_id} not found")
@@ -296,8 +297,9 @@ class CancelTicketUsecase:
             raise
 
         if response.success:
-            # 3. Удаляем из своей БД
-            await self._tickets.delete(ticket)
+            # 3. Мягкая отмена в своей БД (строка сохраняется со статусом
+            # CANCELLED и отметкой cancelled_at)
+            await self._tickets.cancel(ticket)
             # Инвалидируем кэш мест после отмены
             seats_cache.invalidate(ticket.event_id)
             logger.info("Ticket cancelled successfully: %s", ticket_id)

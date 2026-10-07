@@ -1,6 +1,9 @@
-from sqlalchemy import delete, select
+from datetime import UTC, datetime
+
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.enums import TicketStatus
 from src.models.ticket import Ticket
 
 
@@ -17,8 +20,14 @@ class TicketRepository:
         return self._session
 
     async def get_by_ticket_id(self, ticket_id: str) -> Ticket | None:
-        """Получение билета по ticket_id от провайдера."""
-        stmt = select(Ticket).where(Ticket.ticket_id == ticket_id)
+        """Получение активного билета по ticket_id от провайдера.
+
+        Отменённые билеты (status=CANCELLED) не возвращаются — для
+        внешних слоёв они неотличимы от удалённых.
+        """
+        stmt = select(Ticket).where(
+            Ticket.ticket_id == ticket_id, Ticket.status == TicketStatus.ACTIVE
+        )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -44,8 +53,32 @@ class TicketRepository:
         await self._session.flush()
         return ticket
 
-    async def delete(self, ticket: Ticket) -> None:
-        """Удаление билета."""
-        stmt = delete(Ticket).where(Ticket.id == ticket.id)
+    async def cancel(self, ticket: Ticket) -> None:
+        """Мягкая отмена билета: статус CANCELLED и отметка времени."""
+        stmt = (
+            update(Ticket)
+            .where(Ticket.id == ticket.id)
+            .values(status=TicketStatus.CANCELLED, cancelled_at=datetime.now(UTC))
+        )
         await self._session.execute(stmt)
         await self._session.flush()
+
+    async def count_active(self) -> int:
+        """Количество активных (не отменённых) билетов."""
+        stmt = (
+            select(func.count())
+            .select_from(Ticket)
+            .where(Ticket.status == TicketStatus.ACTIVE)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar() or 0
+
+    async def count_cancelled(self) -> int:
+        """Количество отменённых билетов."""
+        stmt = (
+            select(func.count())
+            .select_from(Ticket)
+            .where(Ticket.status == TicketStatus.CANCELLED)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar() or 0

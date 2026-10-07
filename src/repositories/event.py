@@ -23,6 +23,12 @@ class EventRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def count(self) -> int:
+        """Общее количество событий в базе."""
+        stmt = select(func.count()).select_from(Event)
+        result = await self._session.execute(stmt)
+        return result.scalar() or 0
+
     async def list(
         self,
         date_from: datetime | None = None,
