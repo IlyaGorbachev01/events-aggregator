@@ -9,6 +9,7 @@ from src.core.exceptions import (
     ProviderAuthError,
     ProviderUnavailableError,
 )
+from src.core.metrics import cache_hits_total, cache_misses_total
 from src.repositories.event import EventRepository
 from src.services.events_provider_client import EventsProviderClient
 from src.services.seats_cache import seats_cache
@@ -49,10 +50,12 @@ class GetSeatsUsecase:
         # Проверяем глобальный кэш
         cached_seats = seats_cache.get(event_id)
         if cached_seats is not None:
+            cache_hits_total.inc()
             logger.info("Seats returned from cache for event %s", event_id)
             return cached_seats
 
         # Запрашиваем у провайдера с маппингом ошибок
+        cache_misses_total.inc()
         try:
             response = await self._client.seats(event_id)
             seats = response.seats

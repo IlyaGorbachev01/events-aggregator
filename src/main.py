@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from src.api.v1 import events, health, outbox, sync, tickets
+from src.api.v1 import events, health, metrics, outbox, sync, tickets
 from src.core.config import settings
 from src.core.exceptions import (
     EventNotFoundError,
@@ -17,6 +17,7 @@ from src.core.exceptions import (
 )
 from src.core.lifespan import lifespan
 from src.core.logging import setup_logging
+from src.core.metrics_middleware import MetricsMiddleware
 from src.core.sentry import init_sentry
 
 setup_logging()
@@ -34,6 +35,9 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+
+    # Сбор HTTP-метрик Prometheus для всех эндпоинтов
+    app.add_middleware(MetricsMiddleware)
 
     # Глобальный обработчик ошибок валидации Pydantic (возвращаем 400 вместо 422)
     @app.exception_handler(RequestValidationError)
@@ -101,6 +105,7 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     app.include_router(health.router)
+    app.include_router(metrics.router)
     app.include_router(events.router)
     app.include_router(tickets.router)
     app.include_router(sync.router)
