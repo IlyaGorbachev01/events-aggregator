@@ -17,7 +17,6 @@ async def root() -> dict[str, str]:
     return {"service": settings.app_name, "status": "ok"}
 
 
-
 @router.get("/api/health/error", tags=["Health"])
 async def health_error_check() -> dict[str, str]:
     """Тестовый эндпоинт для проверки интеграции с GlitchTip.
